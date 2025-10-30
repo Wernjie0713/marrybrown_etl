@@ -1,0 +1,9 @@
+================================================================================
+PRODUCT MIX REPORT COMPARISON - DETAILED REPORT
+================================================================================
+Generated: 2025-10-27 14:09:05
+Period: September 2025
+Our Portal: C:\Users\MIS INTERN\Downloads\product-mix-2025-09-01_to_2025-09-30.xlsx
+Xilnex: C:\Users\MIS INTERN\Downloads\Product Mix Report_27-10-2025 (Web).xlsx
+
+[INFO] Detailed comparison will be written after analysis

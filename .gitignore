@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (too large for GitHub)
+api_data/
+
+# Optional data files (uncomment to exclude)
+# *.csv
+# *.xlsx
+# *.parquet
+
+# Logs
+*.log
+

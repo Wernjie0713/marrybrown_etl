@@ -1,0 +1,25 @@
+# Marrybrown ETL Pipeline Dependencies
+# Python 3.13+
+
+# Data Manipulation
+pandas==2.3.3
+numpy==2.3.3
+
+# Database Connectivity
+pyodbc==5.2.0
+sqlalchemy==2.0.43
+
+# Parquet/Arrow Support (for bulk export)
+pyarrow==19.0.0
+
+# Configuration Management
+python-dotenv==1.1.1
+
+# Date/Time Utilities
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
+
+# Optional: For better type hints
+typing-extensions==4.15.0
+
