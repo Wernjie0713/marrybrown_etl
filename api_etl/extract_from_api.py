@@ -7,6 +7,7 @@ Date: October 29, 2025 (Updated for Cloud Deployment)
 """
 
 import http.client
+import requests
 import json
 import os
 from datetime import datetime
@@ -19,6 +20,23 @@ from config_api import (
     TARGET_START_DATE, TARGET_END_DATE,
     MAX_API_CALLS, BATCH_SIZE
 )
+_api_session = None
+
+def get_api_session():
+    """Return a singleton requests.Session with keep-alive and gzip enabled."""
+    global _api_session
+    if _api_session is None:
+        session = requests.Session()
+        session.headers.update({
+            'appid': APP_ID,
+            'token': TOKEN,
+            'auth': AUTH_LEVEL,
+            'Connection': 'keep-alive',
+            'Accept-Encoding': 'gzip'
+        })
+        _api_session = session
+    return _api_session
+
 
 # Load environment variables for cloud deployment
 load_dotenv('.env.cloud')  # Cloud warehouse (TIMEdotcom)
@@ -80,6 +98,12 @@ def extract_sales_for_period(start_date, end_date):
     """
     Extract all sales for a specific date range via API pagination
     
+    IMPORTANT: Uses timestamp-based pagination (not date-based).
+    Fetches ALL data via timestamp pagination, then filters by date.
+    This is required because Xilnex API returns data in timestamp order,
+    not chronological business date order, so early stopping by date
+    would miss data that was inserted out of order.
+    
     Args:
         start_date: Start date in YYYY-MM-DD format
         end_date: End date in YYYY-MM-DD format
@@ -91,78 +115,129 @@ def extract_sales_for_period(start_date, end_date):
     print(f"EXTRACTING DATA FROM XILNEX SYNC API")
     print("="*80)
     print(f"Target Date Range: {start_date} to {end_date}")
-    print(f"Max API Calls: {MAX_API_CALLS}")
+    print(f"Max API Calls Safety Cap: {MAX_API_CALLS}")
+    print()
+    print("[INFO] Fetching ALL data via timestamp pagination...")
+    print("[INFO] Will filter by date AFTER fetching all batches.")
     print()
     
-    all_sales = []
+    all_sales_raw = []  # Store ALL sales from API (before date filtering)
     last_timestamp = None
     call_count = 0
+
+    session = get_api_session()
     
-    while call_count < MAX_API_CALLS:
+    # STEP 1: Fetch ALL data via timestamp pagination (no early stopping)
+    while True:
+        if call_count >= MAX_API_CALLS:
+            print(f"  [WARNING] Reached safety cap of {MAX_API_CALLS} calls for this period. Stopping to avoid infinite loop.")
+            break
+
         call_count += 1
-        
         print(f"[Call {call_count}] Fetching batch...")
         if last_timestamp:
             print(f"  Using timestamp: {last_timestamp}")
-        
+
         try:
-            response = call_sync_api(last_timestamp)
-            
+            # Build URL path for requests (mirror of call_sync_api)
+            url_path = f"/sync/sales?limit={BATCH_SIZE}"
+            if last_timestamp:
+                url_path += f"&timestamp={last_timestamp}"
+
+            url = f"https://{API_HOST}{url_path}"
+            res = session.get(url, timeout=60)
+
+            if res.status_code != 200:
+                error_text = res.text
+                raise Exception(f"API Error {res.status_code}: {error_text}")
+
+            response = res.json()
+
             if not response.get('ok'):
                 print(f"  [ERROR] API returned ok=false")
                 break
-            
+
             sales_batch = response.get('data', {}).get('sales', [])
-            
+
             if not sales_batch:
-                print(f"  [COMPLETE] No more sales. Stopping.")
+                print(f"  [COMPLETE] API returned empty batch. No more data.")
                 break
-            
+
+            # Add ALL sales to raw list (no date filtering yet)
+            all_sales_raw.extend(sales_batch)
             print(f"  Retrieved: {len(sales_batch)} sales")
-            
-            # Filter for target date range
-            filtered_count = 0
-            passed_end_date = False
-            
-            for sale in sales_batch:
-                business_date = sale.get('businessDateTime', '').split('T')[0]
-                
-                # Check if we've passed the end date
-                if business_date > end_date:
-                    passed_end_date = True
-                    break
-                
-                # Keep if in target date range
-                if start_date <= business_date <= end_date:
-                    all_sales.append(sale)
-                    filtered_count += 1
-            
-            print(f"  Filtered: {filtered_count} sales in target range")
-            print(f"  Total so far: {len(all_sales)} sales")
-            
-            if passed_end_date:
-                print(f"  [COMPLETE] Passed end date {end_date}. Stopping.")
-                break
-            
-            # Get next timestamp
+            print(f"  Total fetched so far: {len(all_sales_raw)} sales")
+
+            # Get next timestamp for pagination
             last_timestamp = response.get('data', {}).get('lastTimestamp')
             if not last_timestamp:
-                print(f"  [COMPLETE] No more timestamps. Stopping.")
+                print(f"  [COMPLETE] No more timestamps. Reached end of API data.")
                 break
-            
+
             print(f"  Next timestamp: {last_timestamp}")
             print()
-            
+
         except Exception as e:
             print(f"  [ERROR] {e}")
             import traceback
             traceback.print_exc()
             break
     
+    print()
+    print("="*80)
+    print("TIMESTAMP PAGINATION COMPLETE")
+    print(f"  Total API Calls: {call_count}")
+    print(f"  Total Sales Fetched: {len(all_sales_raw)}")
+    print("="*80)
+    print()
+    
+    # STEP 2: Filter by target date range AFTER fetching all data
+    print("="*80)
+    print("FILTERING BY DATE RANGE")
+    print("="*80)
+    print(f"Target: {start_date} to {end_date}")
+    print()
+    
+    all_sales = []
+    date_stats = {
+        'before_start': 0,
+        'in_range': 0,
+        'after_end': 0,
+        'invalid_date': 0
+    }
+    
+    for sale in all_sales_raw:
+        business_date_str = sale.get('businessDateTime', '')
+        if not business_date_str:
+            date_stats['invalid_date'] += 1
+            continue
+        
+        try:
+            business_date = business_date_str.split('T')[0]  # Extract date part
+            
+            if business_date < start_date:
+                date_stats['before_start'] += 1
+            elif business_date > end_date:
+                date_stats['after_end'] += 1
+            else:
+                # In target range!
+                all_sales.append(sale)
+                date_stats['in_range'] += 1
+        except Exception as e:
+            date_stats['invalid_date'] += 1
+            print(f"  [WARNING] Invalid date format: {business_date_str}")
+    
+    print(f"  Before start date ({start_date}): {date_stats['before_start']:,}")
+    print(f"  In target range: {date_stats['in_range']:,} ✓")
+    print(f"  After end date ({end_date}): {date_stats['after_end']:,}")
+    print(f"  Invalid dates: {date_stats['invalid_date']}")
+    print()
+    
     print("="*80)
     print(f"EXTRACTION COMPLETE")
     print(f"  API Calls: {call_count}")
-    print(f"  Sales Retrieved: {len(all_sales)}")
+    print(f"  Total Fetched: {len(all_sales_raw):,}")
+    print(f"  Filtered (In Range): {len(all_sales):,}")
     print("="*80)
     print()
     

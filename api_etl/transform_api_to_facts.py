@@ -46,7 +46,7 @@ def transform_to_facts():
     conn = engine.connect()
     
     try:
-        # Step 1: Clear existing fact data
+        # Step 1: Full rebuild mode (truncate) - legacy path
         print("Step 1: Clearing existing fact_sales_transactions...")
         conn.execute(text("TRUNCATE TABLE dbo.fact_sales_transactions"))
         print("  [OK] Table cleared")
@@ -212,6 +212,128 @@ def transform_to_facts():
     except Exception as e:
         conn.rollback()
         print(f"[ERROR] Transformation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        conn.close()
+
+
+def transform_to_facts_for_period(start_date: str, end_date: str):
+    """
+    Transform data from staging tables to fact_sales_transactions for a specific
+    BusinessDateTime window [start_date, end_date] (inclusive of dates).
+
+    This function is idempotent for the window: it deletes existing facts in
+    the DateKey range before inserting.
+    """
+    print("="*80)
+    print("TRANSFORMING API DATA TO FACT TABLE (WINDOW)")
+    print("="*80)
+    print(f"Window: {start_date} to {end_date}")
+    print()
+
+    engine = get_warehouse_engine()
+    conn = engine.connect()
+
+    try:
+        # Compute DateKey bounds
+        bounds_query = text("""
+            SELECT 
+                CAST(FORMAT(CAST(:start_date AS date), 'yyyyMMdd') AS INT) AS start_key,
+                CAST(FORMAT(CAST(:end_date AS date), 'yyyyMMdd') AS INT) AS end_key
+        """)
+        start_key, end_key = conn.execute(bounds_query, {"start_date": start_date, "end_date": end_date}).fetchone()
+
+        # Step 0: Remove existing facts in window to keep idempotent
+        print("Step 0: Removing existing facts in window...")
+        delete_query = text("""
+            DELETE FROM dbo.fact_sales_transactions
+            WHERE DateKey BETWEEN :start_key AND :end_key
+        """)
+        del_result = conn.execute(delete_query, {"start_key": start_key, "end_key": end_key})
+        print(f"  [OK] Removed {del_result.rowcount if del_result.rowcount is not None else 0} rows")
+        print()
+
+        # Step 1: Transform and load for window
+        print("Step 1: Transforming and loading data for window...")
+        print("  - Applying split-tender allocation logic...")
+        print()
+
+        transform_query = text("""
+            WITH PaymentAllocations AS (
+                SELECT
+                    sp.SaleID,
+                    sp.PaymentMethod,
+                    sp.CardType,
+                    sp.Amount as payment_amount,
+                    sp.PaymentReference,
+                    sp.EODSessionID,
+                    SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) as total_payment_amount,
+                    CASE
+                        WHEN SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) > 0
+                        THEN sp.Amount / SUM(sp.Amount) OVER (PARTITION BY sp.SaleID)
+                        ELSE 0
+                    END as allocation_percentage
+                FROM dbo.staging_payments sp
+            )
+            INSERT INTO dbo.fact_sales_transactions (
+                DateKey, TimeKey,
+                LocationKey, ProductKey, CustomerKey, StaffKey,
+                PromotionKey, PaymentTypeKey, TerminalKey,
+                SaleNumber, SaleType, SubSalesType, SalesStatus, OrderSource,
+                Quantity, GrossAmount, DiscountAmount, NetAmount,
+                TaxAmount, TotalAmount, CostAmount, CardType,
+                TaxCode, TaxRate, IsFOC, Rounding, Model, IsServiceCharge
+            )
+            SELECT
+                CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
+                CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
+                ISNULL(dl.LocationKey, -1) as LocationKey,
+                ISNULL(dp.ProductKey, -1) as ProductKey,
+                -1 as CustomerKey,
+                ISNULL(ds.StaffKey, -1) as StaffKey,
+                -1 as PromotionKey,
+                ISNULL(dpt.PaymentTypeKey, -1) as PaymentTypeKey,
+                -1 as TerminalKey,
+                CAST(ss.SaleID AS VARCHAR(45)) as SaleNumber,
+                ss.SalesType as SaleType,
+                ss.SubSalesType as SubSalesType,
+                ss.Status as SalesStatus,
+                NULL as OrderSource,
+                si.Quantity,
+                si.Subtotal * pa.allocation_percentage as GrossAmount,
+                si.DiscountAmount * pa.allocation_percentage as DiscountAmount,
+                si.NetAmount * pa.allocation_percentage as NetAmount,
+                si.TaxAmount * pa.allocation_percentage as TaxAmount,
+                si.TotalAmount * pa.allocation_percentage as TotalAmount,
+                si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
+                pa.CardType,
+                si.TaxCode,
+                si.TaxRate,
+                si.IsFOC,
+                ss.Rounding * pa.allocation_percentage as Rounding,
+                si.Model,
+                si.IsServiceCharge
+            FROM dbo.staging_sales ss
+            JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
+            JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
+            LEFT JOIN dbo.dim_locations dl ON ss.OutletID = dl.LocationGUID
+            LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
+            LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
+            LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
+            WHERE pa.allocation_percentage > 0
+              AND CAST(ss.BusinessDateTime AS DATE) BETWEEN CAST(:start_date AS DATE) AND CAST(:end_date AS DATE)
+        """)
+        ins_result = conn.execute(transform_query, {"start_date": start_date, "end_date": end_date})
+        conn.commit()
+
+        print(f"  [OK] Inserted {ins_result.rowcount if ins_result.rowcount is not None else 0:,} rows")
+        print()
+
+    except Exception as e:
+        conn.rollback()
+        print(f"[ERROR] Window transformation failed: {e}")
         import traceback
         traceback.print_exc()
         raise

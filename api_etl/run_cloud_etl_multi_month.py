@@ -10,12 +10,76 @@ import sys
 import os
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+import pyodbc
+from dotenv import load_dotenv
 
 # Add parent directory to path to import from api_etl
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api_etl.extract_from_api import extract_sales_for_period, save_raw_json, load_to_staging
-from api_etl.transform_api_to_facts import transform_to_facts
+from api_etl.transform_api_to_facts import transform_to_facts_for_period
+
+# Load environment
+load_dotenv('.env.cloud')
+
+
+def get_warehouse_connection():
+    """Create connection to cloud warehouse for checking existing data"""
+    driver = os.getenv('TARGET_DRIVER', 'ODBC Driver 18 for SQL Server')
+    server = os.getenv('TARGET_SERVER')
+    database = os.getenv('TARGET_DATABASE')
+    username = os.getenv('TARGET_USERNAME')
+    password = os.getenv('TARGET_PASSWORD')
+    
+    conn_str = (
+        f"DRIVER={{{driver}}};"
+        f"SERVER={server};"
+        f"DATABASE={database};"
+        f"UID={username};"
+        f"PWD={password};"
+        f"TrustServerCertificate=yes;"
+        f"Encrypt=yes;"
+        f"Timeout=30;"
+    )
+    
+    return pyodbc.connect(conn_str)
+
+
+def check_existing_months():
+    """
+    Check which months already exist in fact_sales_transactions
+    
+    Returns:
+        set: Set of month strings in format 'YYYY-MM'
+    """
+    try:
+        conn = get_warehouse_connection()
+        cursor = conn.cursor()
+        
+        # Query distinct year-month combinations from fact table
+        cursor.execute("""
+            SELECT DISTINCT LEFT(CAST(DateKey AS VARCHAR), 6) AS YearMonth
+            FROM dbo.fact_sales_transactions
+            WHERE DateKey IS NOT NULL
+            ORDER BY YearMonth
+        """)
+        
+        existing_months = set()
+        for row in cursor.fetchall():
+            year_month = row.YearMonth  # e.g., '201810'
+            # Convert to 'YYYY-MM' format
+            formatted = f"{year_month[:4]}-{year_month[4:6]}"
+            existing_months.add(formatted)
+        
+        cursor.close()
+        conn.close()
+        
+        return existing_months
+        
+    except Exception as e:
+        print(f"[WARNING] Could not check existing months: {e}")
+        print("[INFO] Proceeding with all months (no skip)...")
+        return set()
 
 
 def generate_month_ranges(start_month, start_year, end_month, end_year):
@@ -83,6 +147,10 @@ def extract_month(start_date, end_date, month_name):
         
         # Load to staging tables
         load_to_staging(sales)
+
+        # Transform to facts for this month window (idempotent per window)
+        print("[INFO] Transforming month to facts...")
+        transform_to_facts_for_period(start_date, end_date)
         
         print()
         print(f"[OK] {month_name} extraction complete: {len(sales)} sales")
@@ -101,23 +169,89 @@ def main():
     """
     Main orchestration function
     Extracts Oct 2018 - Dec 2019 (15 months) and transforms to fact table
+    WITH SMART RESUME: Automatically skips already-loaded months
     """
     print()
-    print("╔" + "="*78 + "╗")
-    print("║" + " "*20 + "CLOUD ETL - MULTI-MONTH EXTRACTION" + " "*24 + "║")
-    print("║" + " "*20 + "October 2018 - December 2019" + " "*30 + "║")
-    print("╚" + "="*78 + "╝")
+    print("="*80)
+    print(" "*20 + "CLOUD ETL - MULTI-MONTH EXTRACTION")
+    print(" "*20 + "October 2018 - December 2019")
+    print(" "*20 + "WITH SMART RESUME CAPABILITY")
+    print("="*80)
     print()
     
     overall_start = datetime.now()
     
-    # Generate month ranges (Oct 2018 - Dec 2019)
-    month_ranges = generate_month_ranges(
+    # Generate all expected month ranges (Oct 2018 - Dec 2019)
+    all_month_ranges = generate_month_ranges(
         start_month=10, start_year=2018,
         end_month=12, end_year=2019
     )
     
-    print(f"Total months to extract: {len(month_ranges)}")
+    print(f"[STEP 1] Checking for already-loaded months...")
+    print()
+    
+    # Check which months already exist
+    existing_months = check_existing_months()
+    
+    if existing_months:
+        print(f"[INFO] Found {len(existing_months)} months already in warehouse:")
+        for month in sorted(existing_months):
+            print(f"  - {month} (SKIP)")
+        print()
+    else:
+        print("[INFO] No existing data found. Starting from scratch.")
+        print()
+    
+    # Filter out months that already exist
+    month_ranges = []
+    skipped_count = 0
+    
+    for start_date, end_date, month_name in all_month_ranges:
+        # Extract YYYY-MM from month_name (e.g., "October 2018" -> "2018-10")
+        month_parts = month_name.split()
+        month_num = datetime.strptime(month_parts[0], '%B').month
+        year_num = int(month_parts[1])
+        month_key = f"{year_num}-{month_num:02d}"
+        
+        if month_key in existing_months:
+            skipped_count += 1
+        else:
+            month_ranges.append((start_date, end_date, month_name))
+    
+    print("="*80)
+    print(f"RESUME STRATEGY:")
+    print(f"  Total Expected: {len(all_month_ranges)} months")
+    print(f"  Already Loaded: {skipped_count} months (SKIP)")
+    print(f"  To Process: {len(month_ranges)} months")
+    print("="*80)
+    print()
+    
+    if len(month_ranges) == 0:
+        print("[SUCCESS] All months already loaded! Nothing to do.")
+        print()
+        return
+    
+    # Show what will be processed
+    print("Months to process:")
+    for i, (_, _, month_name) in enumerate(month_ranges, 1):
+        print(f"  {i:2d}. {month_name}")
+    print()
+    
+    # Give user a chance to review
+    print("[INFO] Starting extraction in 5 seconds...")
+    print("[INFO] Press Ctrl+C to cancel if needed...")
+    import time
+    try:
+        time.sleep(5)
+    except KeyboardInterrupt:
+        print()
+        print("[CANCELLED] User interrupted startup")
+        return
+    
+    print()
+    print("="*80)
+    print("STARTING EXTRACTION...")
+    print("="*80)
     print()
     
     # Track progress
@@ -147,44 +281,31 @@ def main():
         print(f"  Failed Months: {', '.join(failed_months)}")
     print()
     
-    # Transform to fact table
-    if total_sales > 0:
-        print()
-        print("="*80)
-        print("STARTING TRANSFORMATION TO FACT TABLE")
-        print("="*80)
-        print()
-        
-        try:
-            transform_to_facts()
-            print()
-            print("[OK] Transformation complete!")
-            print()
-        except Exception as e:
-            print(f"[ERROR] Transformation failed: {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print("[WARNING] No sales to transform. Skipping fact table load.")
+    # Transform was executed per-month above
+    if total_sales == 0:
+        print("[WARNING] No sales extracted. No fact loads were performed.")
     
     # Summary
     overall_end = datetime.now()
     duration = (overall_end - overall_start).total_seconds()
     
     print()
-    print("╔" + "="*78 + "╗")
-    print("║" + " "*25 + "ETL COMPLETE!" + " "*41 + "║")
-    print("╚" + "="*78 + "╝")
+    print("="*80)
+    print(" "*25 + "ETL COMPLETE!")
+    print("="*80)
     print()
     print(f"  Total Time: {duration/60:.1f} minutes")
-    print(f"  Months Processed: {successful_months}")
-    print(f"  Sales Extracted: {total_sales:,}")
+    print(f"  Months Skipped (already loaded): {skipped_count}")
+    print(f"  Months Processed (new): {successful_months}")
+    print(f"  Total Coverage: {skipped_count + successful_months}/{len(all_month_ranges)} months")
+    print(f"  Sales Extracted (new): {total_sales:,}")
+    if failed_months:
+        print(f"  Failed Months: {', '.join(failed_months)}")
     print()
     print("Next steps:")
-    print("  1. Run dimension table ETL scripts if needed")
-    print("  2. Verify data in fact_sales_transactions")
-    print("  3. Test FastAPI backend connection to cloud warehouse")
-    print("  4. Deploy portal and run validation tests")
+    print("  1. Run check_cloud_etl_status.py to verify all 15 months loaded")
+    print("  2. Test FastAPI backend connection to cloud warehouse")
+    print("  3. Deploy portal and run validation tests")
     print()
 
 
