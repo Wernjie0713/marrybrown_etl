@@ -1,0 +1,46 @@
+COLUMNS BEING INSERTED (20 total):
+================================================================================
+1. Items
+2. Collection
+3. Voucher
+4. SaleID
+5. BusinessDateTime
+6. Paid
+7. Balance
+8. CashierName
+9. Status
+10. PaymentStatus
+11. OutletName
+12. SalesType
+13. SubSalesType
+14. BillDiscountAmount
+15. Rounding
+16. NetAmount
+17. GrandTotal
+18. OrderNo
+19. PaxNumber
+20. Client
+
+================================================================================
+FIRST ROW DATA:
+================================================================================
+1. Items: str(len=10300) = [{"id": 60113, "salesDate": "2018-10-01T00:00:00.000Z", "itemId": 101506, "itemCode": "R021", "alter
+2. Collection: str(len=876) = [{"amount": 23.0, "reference": "", "method": "cash", "id": 6021, "clientID": "", "invoiceID": "6021"
+3. Voucher: str(len=2) = []
+4. SaleID: int = 6021
+5. BusinessDateTime: str(len=24) = 2018-10-01T10:28:20.000Z
+6. Paid: Decimal = 23.00
+7. Balance: Decimal = 0.00
+8. CashierName: str(len=5) =  Nina
+9. Status: str(len=9) = Completed
+10. PaymentStatus: str(len=4) = PAID
+11. OutletName: str(len=10) = MB ANGSANA
+12. SalesType: str(len=7) = Dine In
+13. SubSalesType: NULL
+14. BillDiscountAmount: Decimal = 0.00
+15. Rounding: Decimal = 0.00
+16. NetAmount: Decimal = 23.00
+17. GrandTotal: Decimal = 23.00
+18. OrderNo: str(len=4) = 1018
+19. PaxNumber: str(len=1) = 1
+20. Client: str(len=520) = {"id": null, "name": "CASH", "email": null, "contactNo": null, "alternateContactNo": null, "clientCo

@@ -250,6 +250,42 @@ def main():
     
     print()
     print("="*80)
+    print("CLEARING STAGING TABLES...")
+    print("="*80)
+    print()
+    
+    # Clear staging tables before starting extraction
+    try:
+        conn = get_warehouse_connection()
+        cursor = conn.cursor()
+        
+        print("[1/3] Clearing staging_sales...")
+        cursor.execute("TRUNCATE TABLE dbo.staging_sales")
+        print("  [OK] staging_sales cleared")
+        
+        print("[2/3] Clearing staging_sales_items...")
+        cursor.execute("TRUNCATE TABLE dbo.staging_sales_items")
+        print("  [OK] staging_sales_items cleared")
+        
+        print("[3/3] Clearing staging_payments...")
+        cursor.execute("TRUNCATE TABLE dbo.staging_payments")
+        print("  [OK] staging_payments cleared")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print()
+        print("[OK] All staging tables cleared and ready for fresh data")
+        print()
+        
+    except Exception as e:
+        print(f"[WARNING] Could not clear staging tables: {e}")
+        print("[INFO] Proceeding anyway (staging data will accumulate)...")
+        print()
+    
+    print()
+    print("="*80)
     print("STARTING EXTRACTION...")
     print("="*80)
     print()

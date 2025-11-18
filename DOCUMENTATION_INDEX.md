@@ -1,186 +1,87 @@
-# Documentation Index - Marrybrown ETL Pipeline
+# Documentation Index — Marrybrown ETL
 
-**Quick navigation guide to all project documentation**
-
----
-
-## 🚀 Getting Started (Start Here!)
-
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | Get the pipeline running in 10 minutes | 5 min |
-| **[PROJECT_STATUS.md](PROJECT_STATUS.md)** | Current project status and progress | 3 min |
-| **[README.md](README.md)** | Complete ETL pipeline documentation | 15 min |
+Concise guide to the docs that remain active after the November 2025 cleanup.
 
 ---
 
-## 📚 Core Documentation
+## 🚀 Getting Started
 
-### **Technical Reference**
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| **[docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)** | Complete star schema reference with all tables and relationships | Developers, Analysts |
-| **[transform_sales_facts.sql](transform_sales_facts.sql)** | SQL transformation script for fact table | Developers |
-| **[add_payment_type_key.sql](add_payment_type_key.sql)** | Schema update script for payment integration | DBAs |
-
-### **Business Context**
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| **[docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)** | Business problem, solution, and project phases | Management, Stakeholders |
-| **[CHANGELOG.md](CHANGELOG.md)** | Version history and breaking changes | All |
-
-### **Implementation Details**
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| **[docs/PAYMENT_TYPE_ETL_FIX.md](docs/PAYMENT_TYPE_ETL_FIX.md)** | Payment type integration technical details | Developers |
-| **[DOCUMENTATION_UPDATES.md](DOCUMENTATION_UPDATES.md)** | Summary of recent documentation changes | All |
+| Document | Purpose |
+|----------|---------|
+| **[README.md](README.md)** | High-level overview plus architecture summary |
+| **[docs/QUICKSTART.md](docs/QUICKSTART.md)** | 10-minute local bootstrap |
+| **[QUICK_START_GUIDE.md](QUICK_START_GUIDE.md)** | Detailed checklist for first-time operators |
+| **[QUICKSTART_LOCAL_TEST.md](QUICKSTART_LOCAL_TEST.md)** | Sanity test instructions for on-prem SQL Server |
+| **[QUICKSTART_API_TEST.md](QUICKSTART_API_TEST.md)** | Steps for exercising the Xilnex API sandbox |
 
 ---
 
-## 📖 Documentation by Role
+## 📚 Core References
 
-### **For New Developers**
-1. Start: [docs/QUICKSTART.md](docs/QUICKSTART.md)
-2. Then: [README.md](README.md)
-3. Reference: [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
-4. Deep Dive: [docs/PAYMENT_TYPE_ETL_FIX.md](docs/PAYMENT_TYPE_ETL_FIX.md)
+### API ETL Flow
+- `CHUNKED_ETL_GUIDE.md` – end-to-end walkthrough of the chunked pipeline
+- `CHUNKED_APPROACH_SUMMARY.md` – executive summary for stakeholders
+- `TESTING_API_ETL.md` – manual and automated verification steps
+- `GAMMA_AI_PROMPT.md` – canned prompt for regenerating SQL via Gamma
 
-### **For Business Analysts**
-1. Start: [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
-2. Then: [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) (focus on query examples)
-3. Reference: [PROJECT_STATUS.md](PROJECT_STATUS.md)
+### Connectivity & Operations
+- `DATABASE_CONNECTION_FIX.md` – SQL Server auth fixes and troubleshooting
+- `TROUBLESHOOTING_STUCK_ETL.md` – runbook for recovering stalled jobs
+- `ETL_BUG_PREVENTION_GUIDE.md` – guardrails for new feature work (archived copy lives in `archive/docs`)
 
-### **For Management**
-1. Start: [PROJECT_STATUS.md](PROJECT_STATUS.md)
-2. Then: [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
-3. Reference: [CHANGELOG.md](CHANGELOG.md)
-
-### **For Database Administrators**
-1. Start: [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
-2. Then: [transform_sales_facts.sql](transform_sales_facts.sql)
-3. Reference: [add_payment_type_key.sql](add_payment_type_key.sql)
+### Data Model
+- `docs/DATABASE_SCHEMA.md` – canonical star schema
+- `docs/PROJECT_CONTEXT.md` – business context and reporting requirements
 
 ---
 
-## 🗂️ Documentation Structure
+## 🗂️ Repository Structure (Nov 2025)
 
 ```
 marrybrown_etl/
-├── README.md                          # Main documentation
-├── CHANGELOG.md                       # Version history
-├── PROJECT_STATUS.md                  # Current status
-├── DOCUMENTATION_INDEX.md             # This file
-├── DOCUMENTATION_UPDATES.md           # Recent changes
-├── transform_sales_facts.sql          # SQL transformation
-├── add_payment_type_key.sql           # Schema update
-├── etl_*.py                           # ETL scripts
-├── requirements.txt                   # Python dependencies
-│
-└── docs/
-    ├── QUICKSTART.md                  # 10-minute setup guide
-    ├── DATABASE_SCHEMA.md             # Complete schema reference
-    ├── PROJECT_CONTEXT.md             # Business context
-    └── PAYMENT_TYPE_ETL_FIX.md        # Payment integration details
+├── api_etl/             # API-first pipeline (extract/transform/load)
+├── direct_db_etl/       # Legacy warehouse loaders (dim/fact scripts)
+├── scripts/             # Operational utilities (migrations, health checks)
+├── tests/               # Standalone connection/API tests
+├── migrations/          # 001-050 numbered migrations (new canonical set)
+├── archive/
+│   ├── sql/             # Superseded schema hotfixes
+│   └── docs/            # Historical write-ups & presentations
+├── debug/               # Investigation scripts and comparison artifacts
+└── docs/                # Quickstart + schema references
 ```
 
----
-
-## 📝 Documentation Standards
-
-### **Naming Convention**
-- `README.md` - Main project documentation
-- `UPPERCASE.md` - Project-level documents
-- `docs/TitleCase.md` - Detailed technical documents
-
-### **Update Frequency**
-- **README.md**: Update when major features added
-- **CHANGELOG.md**: Update with every version release
-- **PROJECT_STATUS.md**: Update weekly
-- **DATABASE_SCHEMA.md**: Update when schema changes
-- **QUICKSTART.md**: Update when setup process changes
-
-### **Maintenance**
-All documentation is maintained by the project lead and should be reviewed:
-- After each major feature implementation
-- Before each project phase completion
-- When onboarding new team members
+Use `scripts/run_migration.py` to apply the numbered migrations in order (001 → 050).
 
 ---
 
-## 🔄 Recent Updates (October 2025)
+## 📖 Role-Based Path
 
-### **What's New**
-- ✅ Added `CHANGELOG.md` for version tracking
-- ✅ Added `PROJECT_STATUS.md` for current state overview
-- ✅ Added `DOCUMENTATION_INDEX.md` (this file)
-- ✅ Updated `README.md` with payment integration
-- ✅ Updated `DATABASE_SCHEMA.md` with `PaymentTypeKey`
-- ✅ Updated `QUICKSTART.md` with payment testing
-- ✅ Updated `PROJECT_CONTEXT.md` with current phase status
-
-### **What's Consistent**
-- All documentation reflects payment type integration
-- All code examples are up-to-date
-- All schema references include `PaymentTypeKey`
-- All test queries work with current database
+- **Pipeline Operators**: `README.md` → `QUICK_START_GUIDE.md` → `CHUNKED_ETL_GUIDE.md`
+- **Data Engineers**: `docs/DATABASE_SCHEMA.md` → `CHUNKED_APPROACH_SUMMARY.md` → `TESTING_API_ETL.md`
+- **Support / SRE**: `DATABASE_CONNECTION_FIX.md` → `TROUBLESHOOTING_STUCK_ETL.md`
 
 ---
 
-## 🎯 Documentation Goals
+## 🧭 Where Did Everything Else Go?
 
-### **Completeness** ✅
-- All features are documented
-- All scripts have usage examples
-- All tables have schema definitions
+- Legacy SQL fixes & investigations → `archive/sql/`
+- Presentation decks, comparison studies, historical incident reports → `archive/docs/`
+- Direct database ETL scripts → `direct_db_etl/`
 
-### **Accuracy** ✅
-- Documentation matches implementation
-- Code examples are tested and working
-- Schema diagrams reflect actual database
-
-### **Accessibility** ✅
-- Clear navigation structure
-- Role-based reading paths
-- Quick start for new users
-
-### **Maintainability** ✅
-- Consistent formatting
-- Clear update procedures
-- Version tracking
+This keeps the root clean while preserving history when needed.
 
 ---
 
-## 🆘 Documentation Help
+## 🛠 Maintenance Notes
 
-### **Can't Find Something?**
-1. Check this index first
-2. Use Ctrl+F to search in documents
-3. Check the README.md table of contents
-4. Contact the project lead
-
-### **Found an Error?**
-1. Note the document name and section
-2. Describe the issue clearly
-3. Contact the project lead
-4. Document will be updated promptly
-
-### **Need More Detail?**
-1. Check if a related technical document exists
-2. Review the code comments in relevant scripts
-3. Contact the project lead for clarification
+- Update this index whenever documentation moves or new directories are introduced.
+- Keep `archive/` read-only unless a file is definitively obsolete.
+- When adding a new runbook, reference it here and in `README.md`.
 
 ---
 
-## 📞 Documentation Maintainer
-
-**YONG WERN JIE A22EC0121**  
-MIS Department, Marrybrown Malaysia
-
-For documentation questions, corrections, or suggestions, please reach out to the MIS team.
-
----
-
-**Last Updated**: October 9, 2025  
-**Documentation Version**: 1.1.0  
-**Total Documents**: 11 files
+**Maintainer**: Yong Wern Jie (MIS Department)  
+**Last Updated**: November 18, 2025  
+**Documentation Version**: 2.0.0
 

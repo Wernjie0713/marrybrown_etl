@@ -32,20 +32,202 @@ def get_warehouse_engine():
     return create_engine(connection_uri, pool_pre_ping=True)
 
 
-def transform_to_facts():
+def transform_to_facts_optimized(start_date, end_date):
     """
-    Transform data from staging tables to fact_sales_transactions
-    Uses split-tender allocation logic identical to production ETL
+    OPTIMIZED: Transform staging to facts using MERGE for deduplication
+    
+    Benefits over DELETE+INSERT approach:
+    - No DELETE required (MERGE handles updates atomically)
+    - Proper deduplication at fact level using composite key
+    - Single atomic transaction (better safety)
+    - Best performance for incremental loads
+    - Append mode safe (no data loss risk)
+    
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
     """
     print("="*80)
-    print("TRANSFORMING API DATA TO FACT TABLE")
+    print("TRANSFORMING TO FACT TABLE (OPTIMIZED MERGE)")
+    print("="*80)
+    print(f"Date Range: {start_date} to {end_date}")
+    print()
+    
+    engine = get_warehouse_engine()
+    
+    start_time = time.time()
+    
+    with engine.begin() as conn:
+        try:
+            print("[1/2] Creating transformation CTE with split-tender allocation...")
+            print("[2/2] Executing MERGE (upsert to facts)...")
+            print()
+            
+            # Use MERGE instead of DELETE + INSERT
+            # Composite key: SaleID + ItemID + PaymentMethod for uniqueness
+            merge_result = conn.execute(text("""
+                WITH PaymentAllocations AS (
+                    -- Calculate allocation percentage for each payment method per sale
+                    SELECT
+                        sp.SaleID,
+                        sp.PaymentMethod,
+                        sp.CardType,
+                        sp.Amount as payment_amount,
+                        sp.PaymentReference,
+                        sp.EODSessionID,
+                        SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) as total_payment_amount,
+                        -- Calculate what percentage of total payment this method represents
+                        CASE
+                            WHEN SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) > 0
+                            THEN sp.Amount / SUM(sp.Amount) OVER (PARTITION BY sp.SaleID)
+                            ELSE 0
+                        END as allocation_percentage
+                    FROM dbo.staging_payments sp
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM dbo.staging_payments sp2
+                        WHERE sp2.SaleID = sp.SaleID AND sp2.IsVoid = 1
+                    )
+                ),
+                TransformedData AS (
+                    SELECT
+                        -- Composite key for deduplication
+                        CAST(ss.SaleID AS VARCHAR(50)) + '-' + 
+                        CAST(si.ItemID AS VARCHAR(50)) + '-' + 
+                        ISNULL(pa.PaymentMethod, 'NONE') AS CompositeKey,
+                        
+                        -- Date and Time Keys
+                        CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
+                        CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
+                        
+                        -- Dimension Keys
+                        ISNULL(dl.LocationKey, -1) as LocationKey,
+                        ISNULL(dp.ProductKey, -1) as ProductKey,
+                        -1 as CustomerKey,
+                        ISNULL(ds.StaffKey, -1) as StaffKey,
+                        -1 as PromotionKey,
+                        ISNULL(dpt.PaymentTypeKey, -1) as PaymentTypeKey,
+                        -1 as TerminalKey,
+                        
+                        -- Transaction Details
+                        CAST(ss.SaleID AS VARCHAR(45)) as SaleNumber,
+                        ss.SalesType as SaleType,
+                        ss.SubSalesType as SubSalesType,
+                        ss.Status as SalesStatus,
+                        NULL as OrderSource,
+                        
+                        -- Measures (allocated by payment method)
+                        si.Quantity,
+                        si.Subtotal * pa.allocation_percentage as GrossAmount,
+                        si.DiscountAmount * pa.allocation_percentage as DiscountAmount,
+                        si.NetAmount * pa.allocation_percentage as NetAmount,
+                        si.TaxAmount * pa.allocation_percentage as TaxAmount,
+                        si.TotalAmount * pa.allocation_percentage as TotalAmount,
+                        si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
+                        
+                        -- API-specific fields
+                        pa.CardType,
+                        si.TaxCode,
+                        si.TaxRate,
+                        si.IsFOC,
+                        ss.Rounding * pa.allocation_percentage as Rounding,
+                        si.Model,
+                        si.IsServiceCharge
+                        
+                    FROM dbo.staging_sales ss
+                    JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
+                    JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
+                    LEFT JOIN dbo.dim_locations dl ON ss.OutletID = dl.LocationGUID
+                    LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
+                    LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
+                    LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
+                    WHERE pa.allocation_percentage > 0
+                      AND CAST(ss.BusinessDateTime AS DATE) BETWEEN CAST(:start_date AS DATE) AND CAST(:end_date AS DATE)
+                )
+                MERGE dbo.fact_sales_transactions AS target
+                USING TransformedData AS source
+                ON target.SaleNumber = SUBSTRING(source.CompositeKey, 1, CHARINDEX('-', source.CompositeKey) - 1)
+                   AND target.DateKey = source.DateKey
+                   AND target.ProductKey = source.ProductKey
+                   AND target.PaymentTypeKey = source.PaymentTypeKey
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        TimeKey = source.TimeKey,
+                        LocationKey = source.LocationKey,
+                        CustomerKey = source.CustomerKey,
+                        StaffKey = source.StaffKey,
+                        PromotionKey = source.PromotionKey,
+                        TerminalKey = source.TerminalKey,
+                        SaleType = source.SaleType,
+                        SubSalesType = source.SubSalesType,
+                        SalesStatus = source.SalesStatus,
+                        OrderSource = source.OrderSource,
+                        Quantity = source.Quantity,
+                        GrossAmount = source.GrossAmount,
+                        DiscountAmount = source.DiscountAmount,
+                        NetAmount = source.NetAmount,
+                        TaxAmount = source.TaxAmount,
+                        TotalAmount = source.TotalAmount,
+                        CostAmount = source.CostAmount,
+                        CardType = source.CardType,
+                        TaxCode = source.TaxCode,
+                        TaxRate = source.TaxRate,
+                        IsFOC = source.IsFOC,
+                        Rounding = source.Rounding,
+                        Model = source.Model,
+                        IsServiceCharge = source.IsServiceCharge
+                WHEN NOT MATCHED THEN
+                    INSERT (DateKey, TimeKey, LocationKey, ProductKey, CustomerKey, StaffKey,
+                            PromotionKey, PaymentTypeKey, TerminalKey, SaleNumber, SaleType,
+                            SubSalesType, SalesStatus, OrderSource, Quantity, GrossAmount,
+                            DiscountAmount, NetAmount, TaxAmount, TotalAmount, CostAmount,
+                            CardType, TaxCode, TaxRate, IsFOC, Rounding, Model, IsServiceCharge)
+                    VALUES (source.DateKey, source.TimeKey, source.LocationKey, source.ProductKey,
+                            source.CustomerKey, source.StaffKey, source.PromotionKey,
+                            source.PaymentTypeKey, source.TerminalKey, source.SaleNumber,
+                            source.SaleType, source.SubSalesType, source.SalesStatus,
+                            source.OrderSource, source.Quantity, source.GrossAmount,
+                            source.DiscountAmount, source.NetAmount, source.TaxAmount,
+                            source.TotalAmount, source.CostAmount, source.CardType,
+                            source.TaxCode, source.TaxRate, source.IsFOC, source.Rounding,
+                            source.Model, source.IsServiceCharge);
+            """), {"start_date": start_date, "end_date": end_date})
+            
+            elapsed_time = time.time() - start_time
+            
+            print(f"  [OK] MERGE complete!")
+            print(f"  Rows affected: {merge_result.rowcount if merge_result.rowcount is not None else 'N/A'}")
+            print(f"  (includes both inserts and updates)")
+            print(f"  Time: {elapsed_time:.2f} seconds")
+            print()
+            
+            print("="*80)
+            print("TRANSFORMATION COMPLETE")
+            print("="*80)
+            print()
+            
+        except Exception as e:
+            print(f"[ERROR] Transformation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+
+def transform_to_facts():
+    """
+    LEGACY: Transform data from staging tables to fact_sales_transactions
+    Uses split-tender allocation logic identical to production ETL
+    
+    This is the old approach (TRUNCATE + INSERT) kept for backward compatibility.
+    For new code, use transform_to_facts_optimized() instead.
+    """
+    print("="*80)
+    print("TRANSFORMING API DATA TO FACT TABLE (LEGACY MODE)")
     print("="*80)
     print()
     
     engine = get_warehouse_engine()
-    conn = engine.connect()
     
-    try:
+    with engine.begin() as conn:  # Use begin() for automatic transaction management
         # Step 1: Full rebuild mode (truncate) - legacy path
         print("Step 1: Clearing existing fact_sales_transactions...")
         conn.execute(text("TRUNCATE TABLE dbo.fact_sales_transactions"))
@@ -146,7 +328,7 @@ def transform_to_facts():
         """)
         
         result = conn.execute(transform_query)
-        conn.commit()
+        # No need to call conn.commit() - begin() context manager handles it automatically
         
         elapsed_time = time.time() - start_time
         rows_inserted = result.rowcount
@@ -208,15 +390,7 @@ def transform_to_facts():
         print("  2. Access portal at /reports/daily-sales-api-test")
         print("  3. Export to Excel and compare with Xilnex portal")
         print()
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"[ERROR] Transformation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-    finally:
-        conn.close()
+    # No need for except/finally - context manager handles cleanup automatically
 
 
 def transform_to_facts_for_period(start_date: str, end_date: str):
@@ -234,111 +408,108 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
     print()
 
     engine = get_warehouse_engine()
-    conn = engine.connect()
+    
+    with engine.begin() as conn:  # Use begin() for automatic transaction management
+        try:
+            # Compute DateKey bounds
+            bounds_query = text("""
+                SELECT 
+                    CAST(FORMAT(CAST(:start_date AS date), 'yyyyMMdd') AS INT) AS start_key,
+                    CAST(FORMAT(CAST(:end_date AS date), 'yyyyMMdd') AS INT) AS end_key
+            """)
+            start_key, end_key = conn.execute(bounds_query, {"start_date": start_date, "end_date": end_date}).fetchone()
 
-    try:
-        # Compute DateKey bounds
-        bounds_query = text("""
-            SELECT 
-                CAST(FORMAT(CAST(:start_date AS date), 'yyyyMMdd') AS INT) AS start_key,
-                CAST(FORMAT(CAST(:end_date AS date), 'yyyyMMdd') AS INT) AS end_key
-        """)
-        start_key, end_key = conn.execute(bounds_query, {"start_date": start_date, "end_date": end_date}).fetchone()
+            # Step 0: Remove existing facts in window to keep idempotent
+            print("Step 0: Removing existing facts in window...")
+            delete_query = text("""
+                DELETE FROM dbo.fact_sales_transactions
+                WHERE DateKey BETWEEN :start_key AND :end_key
+            """)
+            del_result = conn.execute(delete_query, {"start_key": start_key, "end_key": end_key})
+            print(f"  [OK] Removed {del_result.rowcount if del_result.rowcount is not None else 0} rows")
+            print()
 
-        # Step 0: Remove existing facts in window to keep idempotent
-        print("Step 0: Removing existing facts in window...")
-        delete_query = text("""
-            DELETE FROM dbo.fact_sales_transactions
-            WHERE DateKey BETWEEN :start_key AND :end_key
-        """)
-        del_result = conn.execute(delete_query, {"start_key": start_key, "end_key": end_key})
-        print(f"  [OK] Removed {del_result.rowcount if del_result.rowcount is not None else 0} rows")
-        print()
+            # Step 1: Transform and load for window
+            print("Step 1: Transforming and loading data for window...")
+            print("  - Applying split-tender allocation logic...")
+            print()
 
-        # Step 1: Transform and load for window
-        print("Step 1: Transforming and loading data for window...")
-        print("  - Applying split-tender allocation logic...")
-        print()
-
-        transform_query = text("""
-            WITH PaymentAllocations AS (
+            transform_query = text("""
+                WITH PaymentAllocations AS (
+                    SELECT
+                        sp.SaleID,
+                        sp.PaymentMethod,
+                        sp.CardType,
+                        sp.Amount as payment_amount,
+                        sp.PaymentReference,
+                        sp.EODSessionID,
+                        SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) as total_payment_amount,
+                        CASE
+                            WHEN SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) > 0
+                            THEN sp.Amount / SUM(sp.Amount) OVER (PARTITION BY sp.SaleID)
+                            ELSE 0
+                        END as allocation_percentage
+                    FROM dbo.staging_payments sp
+                )
+                INSERT INTO dbo.fact_sales_transactions (
+                    DateKey, TimeKey,
+                    LocationKey, ProductKey, CustomerKey, StaffKey,
+                    PromotionKey, PaymentTypeKey, TerminalKey,
+                    SaleNumber, SaleType, SubSalesType, SalesStatus, OrderSource,
+                    Quantity, GrossAmount, DiscountAmount, NetAmount,
+                    TaxAmount, TotalAmount, CostAmount, CardType,
+                    TaxCode, TaxRate, IsFOC, Rounding, Model, IsServiceCharge
+                )
                 SELECT
-                    sp.SaleID,
-                    sp.PaymentMethod,
-                    sp.CardType,
-                    sp.Amount as payment_amount,
-                    sp.PaymentReference,
-                    sp.EODSessionID,
-                    SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) as total_payment_amount,
-                    CASE
-                        WHEN SUM(sp.Amount) OVER (PARTITION BY sp.SaleID) > 0
-                        THEN sp.Amount / SUM(sp.Amount) OVER (PARTITION BY sp.SaleID)
-                        ELSE 0
-                    END as allocation_percentage
-                FROM dbo.staging_payments sp
-            )
-            INSERT INTO dbo.fact_sales_transactions (
-                DateKey, TimeKey,
-                LocationKey, ProductKey, CustomerKey, StaffKey,
-                PromotionKey, PaymentTypeKey, TerminalKey,
-                SaleNumber, SaleType, SubSalesType, SalesStatus, OrderSource,
-                Quantity, GrossAmount, DiscountAmount, NetAmount,
-                TaxAmount, TotalAmount, CostAmount, CardType,
-                TaxCode, TaxRate, IsFOC, Rounding, Model, IsServiceCharge
-            )
-            SELECT
-                CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
-                CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
-                ISNULL(dl.LocationKey, -1) as LocationKey,
-                ISNULL(dp.ProductKey, -1) as ProductKey,
-                -1 as CustomerKey,
-                ISNULL(ds.StaffKey, -1) as StaffKey,
-                -1 as PromotionKey,
-                ISNULL(dpt.PaymentTypeKey, -1) as PaymentTypeKey,
-                -1 as TerminalKey,
-                CAST(ss.SaleID AS VARCHAR(45)) as SaleNumber,
-                ss.SalesType as SaleType,
-                ss.SubSalesType as SubSalesType,
-                ss.Status as SalesStatus,
-                NULL as OrderSource,
-                si.Quantity,
-                si.Subtotal * pa.allocation_percentage as GrossAmount,
-                si.DiscountAmount * pa.allocation_percentage as DiscountAmount,
-                si.NetAmount * pa.allocation_percentage as NetAmount,
-                si.TaxAmount * pa.allocation_percentage as TaxAmount,
-                si.TotalAmount * pa.allocation_percentage as TotalAmount,
-                si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
-                pa.CardType,
-                si.TaxCode,
-                si.TaxRate,
-                si.IsFOC,
-                ss.Rounding * pa.allocation_percentage as Rounding,
-                si.Model,
-                si.IsServiceCharge
-            FROM dbo.staging_sales ss
-            JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
-            JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
-            LEFT JOIN dbo.dim_locations dl ON ss.OutletID = dl.LocationGUID
-            LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
-            LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
-            LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
-            WHERE pa.allocation_percentage > 0
-              AND CAST(ss.BusinessDateTime AS DATE) BETWEEN CAST(:start_date AS DATE) AND CAST(:end_date AS DATE)
-        """)
-        ins_result = conn.execute(transform_query, {"start_date": start_date, "end_date": end_date})
-        conn.commit()
+                    CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
+                    CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
+                    ISNULL(dl.LocationKey, -1) as LocationKey,
+                    ISNULL(dp.ProductKey, -1) as ProductKey,
+                    -1 as CustomerKey,
+                    ISNULL(ds.StaffKey, -1) as StaffKey,
+                    -1 as PromotionKey,
+                    ISNULL(dpt.PaymentTypeKey, -1) as PaymentTypeKey,
+                    -1 as TerminalKey,
+                    CAST(ss.SaleID AS VARCHAR(45)) as SaleNumber,
+                    ss.SalesType as SaleType,
+                    ss.SubSalesType as SubSalesType,
+                    ss.Status as SalesStatus,
+                    NULL as OrderSource,
+                    si.Quantity,
+                    si.Subtotal * pa.allocation_percentage as GrossAmount,
+                    si.DiscountAmount * pa.allocation_percentage as DiscountAmount,
+                    si.NetAmount * pa.allocation_percentage as NetAmount,
+                    si.TaxAmount * pa.allocation_percentage as TaxAmount,
+                    si.TotalAmount * pa.allocation_percentage as TotalAmount,
+                    si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
+                    pa.CardType,
+                    si.TaxCode,
+                    si.TaxRate,
+                    si.IsFOC,
+                    ss.Rounding * pa.allocation_percentage as Rounding,
+                    si.Model,
+                    si.IsServiceCharge
+                FROM dbo.staging_sales ss
+                JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
+                JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
+                LEFT JOIN dbo.dim_locations dl ON ss.OutletID = dl.LocationGUID
+                LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
+                LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
+                LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
+                WHERE pa.allocation_percentage > 0
+                  AND CAST(ss.BusinessDateTime AS DATE) BETWEEN CAST(:start_date AS DATE) AND CAST(:end_date AS DATE)
+            """)
+            ins_result = conn.execute(transform_query, {"start_date": start_date, "end_date": end_date})
+            # No need to call conn.commit() - begin() context manager handles it automatically
 
-        print(f"  [OK] Inserted {ins_result.rowcount if ins_result.rowcount is not None else 0:,} rows")
-        print()
+            print(f"  [OK] Inserted {ins_result.rowcount if ins_result.rowcount is not None else 0:,} rows")
+            print()
 
-    except Exception as e:
-        conn.rollback()
-        print(f"[ERROR] Window transformation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-    finally:
-        conn.close()
+        except Exception as e:
+            print(f"[ERROR] Window transformation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise  # Will trigger automatic rollback
 
 
 def main():

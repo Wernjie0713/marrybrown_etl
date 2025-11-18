@@ -96,6 +96,25 @@ This project uses a **hybrid approach**:
 
 ---
 
+## 📁 Repository Layout (Nov 2025)
+
+```
+marrybrown_etl/
+├── api_etl/             # API-first pipeline (chunked extraction codebase)
+├── direct_db_etl/       # Legacy warehouse loaders for dims/facts
+├── scripts/             # Utilities (migrations runner, exports, diagnostics)
+├── tests/               # Connection and API smoke tests
+├── migrations/          # Numbered SQL migrations (001–050)
+├── archive/
+│   ├── sql/             # Superseded schema tweaks
+│   └── docs/            # Historical narratives & presentations
+└── docs/                # Quickstart + schema references
+```
+
+Use `python scripts/run_migration.py all` to apply every migration in order, or pass a specific filename when needed.
+
+---
+
 ## 📦 Prerequisites
 
 ### Software Requirements
@@ -165,7 +184,7 @@ TARGET_PASSWORD=your_password
 ### 5. Test Connections
 
 ```bash
-python test_connections.py
+python tests/test_connections.py
 ```
 
 Expected output:
@@ -199,7 +218,7 @@ All dimension scripts follow the same pattern:
 3. **Load**: Truncate target table and append transformed data
 4. **Default Records**: Insert "Unknown" records with `-1` surrogate keys
 
-#### `generate_time_dims.py`
+#### `scripts/generate_time_dims.py`
 
 Generates time dimension tables programmatically (no source data needed).
 
@@ -213,12 +232,14 @@ Generates time dimension tables programmatically (no source data needed).
 
 **Usage:**
 ```bash
-python generate_time_dims.py
+python scripts/generate_time_dims.py
+```bash
+python scripts/generate_time_dims.py
 ```
 
 ---
 
-#### `etl_dim_customers.py`
+#### `direct_db_etl/etl_dim_customers.py`
 
 Extracts customer data from `APP_4_CUSTOMER` table.
 
@@ -234,12 +255,12 @@ Extracts customer data from `APP_4_CUSTOMER` table.
 
 **Usage:**
 ```bash
-python etl_dim_customers.py
+python direct_db_etl/etl_dim_customers.py
 ```
 
 ---
 
-#### `etl_dim_products.py`
+#### `direct_db_etl/etl_dim_products.py`
 
 Extracts product catalog from `APP_4_ITEM` table.
 
@@ -254,12 +275,12 @@ Extracts product catalog from `APP_4_ITEM` table.
 
 **Usage:**
 ```bash
-python etl_dim_products.py
+python direct_db_etl/etl_dim_products.py
 ```
 
 ---
 
-#### `etl_dim_locations.py`
+#### `direct_db_etl/etl_dim_locations.py`
 
 Extracts outlet/store location data.
 
@@ -273,12 +294,12 @@ Extracts outlet/store location data.
 
 **Usage:**
 ```bash
-python etl_dim_locations.py
+python direct_db_etl/etl_dim_locations.py
 ```
 
 ---
 
-#### `etl_dim_staff.py`
+#### `direct_db_etl/etl_dim_staff.py`
 
 Extracts staff/cashier data from sales transactions.
 
@@ -295,12 +316,12 @@ Extracts staff/cashier data from sales transactions.
 
 **Usage:**
 ```bash
-python etl_dim_staff.py
+python direct_db_etl/etl_dim_staff.py
 ```
 
 ---
 
-#### `etl_dim_promotions.py`
+#### `direct_db_etl/etl_dim_promotions.py`
 
 Extracts promotion and voucher data.
 
@@ -317,7 +338,7 @@ Extracts promotion and voucher data.
 
 **Usage:**
 ```bash
-python etl_dim_promotions.py
+python direct_db_etl/etl_dim_promotions.py
 ```
 
 ---
@@ -341,7 +362,7 @@ The Parquet Export System provides client-side Python scripts to export sales da
 python test_azure_connection.py
 
 # 3. Run export
-python export_to_parquet.py
+python scripts/export_to_parquet.py
 
 # 4. Validate results
 python validate_parquet.py
@@ -367,7 +388,7 @@ See **[PARQUET_EXPORT_GUIDE.md](PARQUET_EXPORT_GUIDE.md)** for complete document
 
 ---
 
-#### `etl_dim_payment_types.py`
+#### `direct_db_etl/etl_dim_payment_types.py`
 
 Extracts distinct payment methods.
 
@@ -385,14 +406,14 @@ Extracts distinct payment methods.
 
 **Usage:**
 ```bash
-python etl_dim_payment_types.py
+python direct_db_etl/etl_dim_payment_types.py
 ```
 
 ---
 
 ### Fact Table ELT Script
 
-#### `etl_fact_sales_historical.py`
+#### `direct_db_etl/etl_fact_sales_historical.py`
 
 Extracts sales transaction data using the **ELT pattern** with multithreading.
 
@@ -435,7 +456,7 @@ MAX_WORKERS = 4     # Number of concurrent threads
 **Usage**:
 ```bash
 # Step 1: Extract and Load
-python etl_fact_sales_historical.py
+python direct_db_etl/etl_fact_sales_historical.py
 
 # Step 2: Transform (run SQL script in SSMS or via sqlcmd)
 # Execute: transform_sales_facts.sql
@@ -540,21 +561,21 @@ Follow this sequence for a complete data refresh:
 .\venv\Scripts\activate
 
 # 2. Test database connections
-python test_connections.py
+python tests/test_connections.py
 
 # 3. Load time dimensions (one-time setup)
-python generate_time_dims.py
+python scripts/generate_time_dims.py
 
 # 4. Load all dimension tables
-python etl_dim_locations.py
-python etl_dim_products.py
-python etl_dim_customers.py
-python etl_dim_staff.py
-python etl_dim_promotions.py
-python etl_dim_payment_types.py
+python direct_db_etl/etl_dim_locations.py
+python direct_db_etl/etl_dim_products.py
+python direct_db_etl/etl_dim_customers.py
+python direct_db_etl/etl_dim_staff.py
+python direct_db_etl/etl_dim_promotions.py
+python direct_db_etl/etl_dim_payment_types.py
 
 # 5. Extract and load sales data (EL step)
-python etl_fact_sales_historical.py
+python direct_db_etl/etl_fact_sales_historical.py
 
 # 6. Transform sales data (T step - run in SSMS or via sqlcmd)
 # Execute: transform_sales_facts.sql
@@ -566,13 +587,13 @@ For daily updates (after initial load):
 
 ```bash
 # Update dimensions (if source data changed)
-python etl_dim_products.py
-python etl_dim_customers.py
+python direct_db_etl/etl_dim_products.py
+python direct_db_etl/etl_dim_customers.py
 # ... other dimensions as needed
 
 # Load new sales data
-# Edit START_DATE and END_DATE in etl_fact_sales_historical.py
-python etl_fact_sales_historical.py
+# Edit START_DATE and END_DATE in direct_db_etl/etl_fact_sales_historical.py
+python direct_db_etl/etl_fact_sales_historical.py
 
 # Transform new data
 # Execute: transform_sales_facts.sql
@@ -683,14 +704,6 @@ Work with operations team to:
 2. Implement validation rules in POS to prevent NULL costs
 3. Regular data quality audits to identify and fix missing costs
 
-**Diagnostic Tool**: 
-Run `diagnose_profit_discrepancy.py` to analyze cost data quality for any date/store:
-```bash
-cd marrybrown_etl
-python diagnose_profit_discrepancy.py
-```
-
----
 
 ## 📝 Future Enhancements
 
