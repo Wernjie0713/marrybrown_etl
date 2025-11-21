@@ -140,20 +140,20 @@ def transform_to_facts_optimized():
                         CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
                         
                         -- Dimension Keys
-                        ISNULL(ss.LocationKey, -1) as LocationKey,
+                        ISNULL(dl.LocationKey, -1) as LocationKey,
                         ISNULL(dp.ProductKey, -1) as ProductKey,
-                        -1 as CustomerKey,
+                        ISNULL(dc.CustomerKey, -1) as CustomerKey,
                         ISNULL(ds.StaffKey, -1) as StaffKey,
                         -1 as PromotionKey,
                         ISNULL(dpt.PaymentTypeKey, -1) as PaymentTypeKey,
-                        -1 as TerminalKey,
+                        ISNULL(dt.TerminalKey, -1) as TerminalKey,
                         
                         -- Transaction Details
                         CAST(ss.SaleID AS VARCHAR(45)) as SaleNumber,
                         ss.SalesType as SaleType,
                         ss.SubSalesType as SubSalesType,
                         ss.Status as SalesStatus,
-                        NULL as OrderSource,
+                        ss.OrderSource as OrderSource,
                         
                         -- Measures (allocated by payment method)
                         si.Quantity,
@@ -162,7 +162,7 @@ def transform_to_facts_optimized():
                         si.NetAmount * pa.allocation_percentage as NetAmount,
                         si.TaxAmount * pa.allocation_percentage as TaxAmount,
                         si.TotalAmount * pa.allocation_percentage as TotalAmount,
-                        si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
+                        si.CostAmount * pa.allocation_percentage as CostAmount,
                         
                         -- API-specific fields
                         pa.CardType,
@@ -176,9 +176,15 @@ def transform_to_facts_optimized():
                     FROM dbo.staging_sales ss
                     JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
                     JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
+                    
+                    -- Dimension Joins
                     LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
+                    LEFT JOIN dbo.dim_locations dl ON ss.OutletName = dl.LocationName
                     LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
+                    LEFT JOIN dbo.dim_customers dc ON ss.CustomerID = dc.CustomerGUID
+                    LEFT JOIN dbo.dim_terminals dt ON ss.TerminalCode = dt.TerminalID
                     LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
+                    
                     WHERE pa.allocation_percentage > 0
                     -- REMOVED: Date range filter - process ALL staging data
                 )

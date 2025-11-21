@@ -32,7 +32,9 @@ TARGET_END_DATE = "2018-10-31"
 # MAX_API_CALLS = None  # None = unlimited (for full production runs)
 MAX_API_CALLS = 500   # Testing limit (500 calls ≈ 500K records, good for development)
 
-BATCH_SIZE = 1000      # API returns 1000 records per call (API limit)
+# Use smaller batches locally to avoid 90s timeout on slower networks.
+# Cloud runs can override via env var FAST_SAMPLE_BATCH_SIZE or direct edit.
+BATCH_SIZE = 100       # API max is 1000; 200 keeps each call under timeout
 
 # Smart Early Exit Configuration
 # ================================

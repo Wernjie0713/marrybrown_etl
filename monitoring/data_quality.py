@@ -91,7 +91,10 @@ class DataQualityValidator:
                     """
                     SELECT 
                         COUNT(*) AS item_rows,
-                        SUM(CAST(si.TotalAmount AS DECIMAL(18,2))) AS total_amount
+                        SUM(CAST(si.TotalAmount AS DECIMAL(18,2))) AS total_amount,
+                        SUM(CAST(si.NetAmount AS DECIMAL(18,2))) AS net_amount,
+                        SUM(CAST(si.TaxAmount AS DECIMAL(18,2))) AS tax_amount,
+                        SUM(CAST(si.CostAmount AS DECIMAL(18,2))) AS cost_amount
                     FROM dbo.staging_sales_items si
                     JOIN dbo.staging_sales ss ON ss.SaleID = si.SaleID
                     WHERE CAST(ss.BusinessDateTime AS DATE) 
@@ -106,7 +109,10 @@ class DataQualityValidator:
                     """
                     SELECT 
                         COUNT(*) AS fact_rows,
-                        SUM(CAST(TotalAmount AS DECIMAL(18,2))) AS fact_amount
+                        SUM(CAST(TotalAmount AS DECIMAL(18,2))) AS fact_amount,
+                        SUM(CAST(NetAmount AS DECIMAL(18,2))) AS fact_net,
+                        SUM(CAST(TaxAmount AS DECIMAL(18,2))) AS fact_tax,
+                        SUM(CAST(CostAmount AS DECIMAL(18,2))) AS fact_cost
                     FROM dbo.fact_sales_transactions
                     WHERE DATEFROMPARTS(
                         DateKey / 10000,
@@ -120,20 +126,56 @@ class DataQualityValidator:
 
         stage_amount = staging_row.total_amount or 0
         fact_amount = fact_row.fact_amount or 0
+        
+        stage_net = staging_row.net_amount or 0
+        fact_net = fact_row.fact_net or 0
+        
+        stage_tax = staging_row.tax_amount or 0
+        fact_tax = fact_row.fact_tax or 0
+        
+        stage_cost = staging_row.cost_amount or 0
+        fact_cost = fact_row.fact_cost or 0
 
         stage_rows = staging_row.item_rows or 0
         fact_rows = fact_row.fact_rows or 0
 
         if fact_rows == 0:
-            raise DataQualityError("Fact table returned 0 rows for requested window.")
+            # This might be valid if staging is empty, but staging check covers that.
+            # If staging has rows, fact must have rows.
+            pass
 
         if stage_rows == 0:
             raise DataQualityError("Staging rows missing for requested window.")
+            
+        if fact_rows == 0 and stage_rows > 0:
+             raise DataQualityError("Fact table returned 0 rows but staging has data.")
 
+        # Validate Total Amount
         diff = abs(stage_amount - fact_amount)
         if stage_amount and (diff / stage_amount) > 0.01:
             raise DataQualityError(
-                f"Fact totals differ from staging by {diff:.2f} (>{1:.0f}% threshold)."
+                f"Fact TotalAmount differs from staging by {diff:.2f} (>{1:.0f}% threshold)."
             )
+            
+        # Validate Net Amount
+        diff_net = abs(stage_net - fact_net)
+        if stage_net and (diff_net / stage_net) > 0.01:
+            raise DataQualityError(
+                 f"Fact NetAmount differs from staging by {diff_net:.2f}."
+            )
+
+        # Validate Tax Amount
+        diff_tax = abs(stage_tax - fact_tax)
+        if stage_tax and (diff_tax / stage_tax) > 0.01:
+             raise DataQualityError(
+                 f"Fact TaxAmount differs from staging by {diff_tax:.2f}."
+             )
+             
+        # Validate Cost Amount
+        diff_cost = abs(stage_cost - fact_cost)
+        if stage_cost and (diff_cost / stage_cost) > 0.01:
+             raise DataQualityError(
+                 f"Fact CostAmount differs from staging by {diff_cost:.2f}."
+             )
 
 

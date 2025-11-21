@@ -269,6 +269,17 @@ def transform_sales_to_dataframes(sales_list: List[Dict], engine) -> tuple:
     return sales_df, items_df, payments_df
 
 
+
+def normalize_text(text_val):
+    """Normalize text for dimension matching (uppercase, stripped)."""
+    if pd.isna(text_val) or text_val is None:
+        return None
+    if not isinstance(text_val, str):
+        return text_val
+    val = text_val.strip().upper()
+    return val if val else None
+
+
 def write_sales_batch(engine, sales_df: pd.DataFrame):
     """Write sales dataframe to staging_sales using executemany (same approach as extract_from_api_chunked.py)."""
     if sales_df.empty:
@@ -276,13 +287,36 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
     
     table_name = 'dbo.staging_sales'
     
-    # Define valid columns using ORIGINAL API field names (same as extract_from_api_chunked.py)
+    # Define valid columns using ORIGINAL API field names that we actually load
+    # into the lean dbo.staging_sales table (no wide JSON blobs).
     valid_columns = [
-        'id', 'dateTime', 'systemDateTime', 'outlet', 'cashier', 'salesType', 'subSalesType',
-        'grandTotal', 'netAmount', 'paid', 'balance', 'rounding', 'paxNumber',
-        'billDiscountAmount', 'orderNo', 'paymentStatus', 'status', 'batchId',
-        'items', 'collection', 'voucher', 'extendedsales', 'billingaddress',
-        'shippingaddress', 'client', 'LocationKey'
+        'id',
+        'dateTime',
+        'systemDateTime',
+        'outlet',
+        'cashier',
+        'salesType',
+        'subSalesType',
+        'grandTotal',
+        'netAmount',
+        'paid',
+        'balance',
+        'rounding',
+        'paxNumber',
+        'billDiscountAmount',
+        'orderNo',
+        'paymentStatus',
+        'status',
+        'batchId',
+        # New columns for dimension keys
+        'outletId',
+        'siteId',
+        'clientName',
+        'clientId',
+        'outletCode',
+        'orderSource',
+        'deliveryType',
+        'salesPerson'
     ]
     
     # Filter DataFrame to only valid columns that exist
@@ -291,9 +325,9 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
     if not cols_to_use:
         raise RuntimeError(f"No matching columns found for {table_name}")
     
-    df_filtered = sales_df[cols_to_use]
+    df_filtered = sales_df[cols_to_use].copy()
     
-    # Map API field names to staging table schema column names (same as extract_from_api_chunked.py)
+    # Map API field names to staging table schema column names
     column_mapping = {
         'id': 'SaleID',
         'dateTime': 'BusinessDateTime',
@@ -313,20 +347,45 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
         'paymentStatus': 'PaymentStatus',
         'status': 'Status',
         'batchId': 'BatchID',
-        'items': 'Items',
-        'collection': 'Collection',
-        'voucher': 'Voucher',
-        'extendedsales': 'ExtendedSales',
-        'billingaddress': 'BillingAddress',
-        'shippingaddress': 'ShippingAddress',
-        'client': 'Client',
-        'LocationKey': 'LocationKey'
+        # Mappings for new columns
+        'outletId': 'OutletID',
+        'siteId': 'TerminalCode',  # Mapping siteId to TerminalCode
+        'clientName': 'CustomerName',
+        'clientId': 'CustomerID',
+        'outletCode': 'OutletCode',
+        'orderSource': 'OrderSource',
+        'deliveryType': 'DeliveryType',
+        'salesPerson': 'SalesPerson'
     }
+    
+    # Normalization for dimension matching
+    if 'outlet' in df_filtered.columns:
+        df_filtered['outlet'] = df_filtered['outlet'].apply(normalize_text)
+    if 'cashier' in df_filtered.columns:
+        df_filtered['cashier'] = df_filtered['cashier'].apply(normalize_text)
+    if 'salesType' in df_filtered.columns:
+        df_filtered['salesType'] = df_filtered['salesType'].apply(normalize_text)
+    if 'subSalesType' in df_filtered.columns:
+        df_filtered['subSalesType'] = df_filtered['subSalesType'].apply(normalize_text)
+    if 'paymentStatus' in df_filtered.columns:
+        df_filtered['paymentStatus'] = df_filtered['paymentStatus'].apply(normalize_text)
+    if 'status' in df_filtered.columns:
+        df_filtered['status'] = df_filtered['status'].apply(normalize_text)
+    if 'clientName' in df_filtered.columns:
+        df_filtered['clientName'] = df_filtered['clientName'].apply(normalize_text)
+    if 'salesPerson' in df_filtered.columns:
+        df_filtered['salesPerson'] = df_filtered['salesPerson'].apply(normalize_text)
     
     # Rename columns to match staging table schema
     mapping = {col: column_mapping[col] for col in cols_to_use if col in column_mapping}
     df_filtered = df_filtered.rename(columns=mapping)
-    db_columns = list(mapping.values())
+    
+    # Add LoadedAt so NOT NULL constraint/defaults are satisfied on staging table
+    if 'LoadedAt' not in df_filtered.columns:
+        df_filtered['LoadedAt'] = pd.Timestamp.utcnow()
+    
+    db_columns = list(df_filtered.columns)
+
     
     # Decimal precision hints (same as extract_from_api_chunked.py)
     decimal_precision_hints = {
@@ -441,8 +500,34 @@ def write_items_batch(engine, items_df: pd.DataFrame):
     if not cols_to_use:
         raise RuntimeError(f"No matching columns found for {table_name}")
     
-    df_filtered = items_df[cols_to_use]
+    df_filtered = items_df[cols_to_use].copy()
     
+    # Normalize text columns
+    if 'salesPerson' in df_filtered.columns:
+        df_filtered['salesPerson'] = df_filtered['salesPerson'].apply(normalize_text)
+    if 'salesType' in df_filtered.columns:
+        df_filtered['salesType'] = df_filtered['salesType'].apply(normalize_text)
+    if 'salesitemSubsalesType' in df_filtered.columns:
+        df_filtered['salesitemSubsalesType'] = df_filtered['salesitemSubsalesType'].apply(normalize_text)
+    if 'category' in df_filtered.columns:
+        df_filtered['category'] = df_filtered['category'].apply(normalize_text)
+    
+    # Derive monetary fields for facts
+    # Use fillna(0) to ensure calculations work
+    subtotal = pd.to_numeric(df_filtered.get('subtotal', 0), errors='coerce').fillna(0)
+    discount = pd.to_numeric(df_filtered.get('discountAmount', 0), errors='coerce').fillna(0)
+    tax = pd.to_numeric(df_filtered.get('totalTaxAmount', 0), errors='coerce').fillna(0)
+    cost = pd.to_numeric(df_filtered.get('cost', 0), errors='coerce').fillna(0)
+    quantity = pd.to_numeric(df_filtered.get('quantity', 0), errors='coerce').fillna(0)
+    
+    # Calculate derived amounts
+    # NetAmount = Subtotal - Discount
+    # TotalAmount = Subtotal + Tax (assuming Subtotal is pre-tax)
+    # CostAmount = Cost * Quantity (assuming Cost is unit cost)
+    df_filtered['NetAmount'] = subtotal - discount
+    df_filtered['TotalAmount'] = subtotal + tax
+    df_filtered['CostAmount'] = cost * quantity
+
     # Map API field names to staging table schema column names (same as extract_from_api_chunked.py)
     column_mapping = {
         'id': 'ItemID',
@@ -470,7 +555,11 @@ def write_items_batch(engine, items_df: pd.DataFrame):
     # Rename columns to match staging table schema
     mapping = {col: column_mapping[col] for col in cols_to_use if col in column_mapping}
     df_filtered = df_filtered.rename(columns=mapping)
-    db_columns = list(mapping.values())
+    
+    # Ensure derived columns are in final DataFrame (they might not be in mapping)
+    # They are already named correctly: NetAmount, TotalAmount, CostAmount
+    
+    db_columns = list(df_filtered.columns)
     
     # Decimal precision hints (same as extract_from_api_chunked.py)
     decimal_precision_hints = {
@@ -480,7 +569,10 @@ def write_items_batch(engine, items_df: pd.DataFrame):
         'DiscountAmount': (18, 2),
         'TaxAmount': (18, 2),
         'TaxRate': (18, 4),
-        'Cost': (18, 2)
+        'Cost': (18, 2),
+        'NetAmount': (18, 2),
+        'TotalAmount': (18, 2),
+        'CostAmount': (18, 2)
     }
     
     # Get raw pyodbc connection
@@ -584,7 +676,13 @@ def write_payments_batch(engine, payments_df: pd.DataFrame):
     if not cols_to_use:
         raise RuntimeError(f"No matching columns found for {table_name}")
     
-    df_filtered = payments_df[cols_to_use]
+    df_filtered = payments_df[cols_to_use].copy()
+    
+    # Normalize payment method and card type for matching
+    if 'method' in df_filtered.columns:
+        df_filtered['method'] = df_filtered['method'].apply(normalize_text)
+    if 'cardType' in df_filtered.columns:
+        df_filtered['cardType'] = df_filtered['cardType'].apply(normalize_text)
     
     # Map API field names to staging table schema column names (same as extract_from_api_chunked.py)
     column_mapping = {
@@ -605,7 +703,7 @@ def write_payments_batch(engine, payments_df: pd.DataFrame):
     # Rename columns to match staging table schema
     mapping = {col: column_mapping[col] for col in cols_to_use if col in column_mapping}
     df_filtered = df_filtered.rename(columns=mapping)
-    db_columns = list(mapping.values())
+    db_columns = list(df_filtered.columns)
     
     # Decimal precision hints (same as extract_from_api_chunked.py)
     decimal_precision_hints = {
