@@ -50,12 +50,24 @@ def get_warehouse_engine():
     user = os.getenv("TARGET_USERNAME", "sa")
     password = quote_plus(os.getenv("TARGET_PASSWORD", ""))  # URL-encode password
     
+    # Add timeout parameters for slow VPN connections
+    # timeout: Connection timeout in seconds
+    # login_timeout: Login timeout in seconds
     connection_uri = (
         f"mssql+pyodbc://{user}:{password}@{server}/{database}?driver={driver}"
         "&TrustServerCertificate=yes"
+        "&timeout=60"           # Connection timeout: 60 seconds
+        "&login_timeout=60"      # Login timeout: 60 seconds
     )
     
-    return create_engine(connection_uri, pool_pre_ping=True)
+    return create_engine(
+        connection_uri, 
+        pool_pre_ping=True,
+        connect_args={
+            "timeout": 60,           # Connection timeout
+            "login_timeout": 60      # Login timeout
+        }
+    )
 
 
 def call_sync_api(start_timestamp=None):

@@ -1,8 +1,17 @@
 import os
+import sys
+import time
 import pandas as pd
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+# Handle imports when running from different directories
+try:
+    from direct_db_etl.dimension_utils import DimensionAuditClient, dataframe_hash
+except ImportError:
+    # If running from within direct_db_etl directory, add parent to path
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from direct_db_etl.dimension_utils import DimensionAuditClient, dataframe_hash
 
 def get_db_engine(prefix):
     """Creates a SQLAlchemy engine from .env credentials."""
@@ -38,21 +47,26 @@ def get_payment_category(method):
 def main():
     """Main ETL function for the payment types dimension."""
     print("Starting ETL for dim_payment_types...")
+    started_at = time.perf_counter()
+    audit_client = DimensionAuditClient(lambda: get_db_engine("TARGET"), "dim_payment_types")
 
     try:
         # 1. EXTRACT
         print("Connecting to source...")
         source_engine = get_db_engine("XILNEX")
         
-        # We query for DISTINCT methods from the last 90 days to avoid timeouts
+        # We query for distinct methods from the last 90 days to avoid timeouts
+        # Using GROUP BY instead of DISTINCT for better performance on large tables
         sql_query = """
-        SELECT DISTINCT
+        SELECT
             method
         FROM
             COM_5013.APP_4_PAYMENT
         WHERE
             DATETIME__DATE >= DATEADD(day, -90, GETDATE())
-            AND method IS NOT NULL AND method != '';
+            AND method IS NOT NULL AND method != ''
+        GROUP BY
+            method;
         """
         
         print("Extracting distinct payment methods...")
@@ -69,6 +83,12 @@ def main():
         
         df_final = df[['PaymentMethodName', 'PaymentCategory']]
 
+        current_hash = dataframe_hash(df_final)
+        latest = audit_client.get_latest()
+        if latest and latest.source_hash == current_hash and latest.row_count == len(df_final):
+            print(f"[CDC] No changes detected for dim_payment_types ({len(df_final)} rows). Skipping load.")
+            return
+
         # 3. LOAD
         print("Connecting to target...")
         target_engine = get_db_engine("TARGET")
@@ -83,15 +103,19 @@ def main():
                 connection, 
                 schema='dbo',
                 if_exists='append', 
-                index=False
+                index=False,
+                chunksize=10000  # Optimized: added chunksize for better performance
             )
             connection.commit()
 
-        print("✅ ETL for dim_payment_types completed successfully!")
+        elapsed = time.perf_counter() - started_at
+        audit_client.upsert(source_hash=current_hash, row_count=len(df_final), duration_seconds=elapsed)
+        print(f"[SUCCESS] ETL for dim_payment_types completed successfully in {elapsed:.2f}s!")
 
     except Exception as e:
-        print(f"❌ An error occurred during the ETL process: {e}")
+        print(f"[ERROR] An error occurred during the ETL process: {e}")
 
 if __name__ == "__main__":
-    load_dotenv('.env.cloud')  # Use cloud database credentials
+    from utils.env_loader import load_environment
+    load_environment(force_local=True)  # Use .env.local for local development
     main()

@@ -13,50 +13,63 @@ from dotenv import load_dotenv
 from pathlib import Path
 import re
 
-def load_environment():
-    """Load environment variables, preferring local override when available.
+def load_environment(force_local=False):
+    """Load environment variables, preferring cloud environment for migrations.
 
     Priority:
-    1. .env.local at repo root (for local development)
-    2. .env.cloud next to this script (for cloud / shared env)
+    1. .env.cloud at repo root (for cloud / production deployments)
+    2. .env.local at repo root (for local development fallback)
+    
+    Args:
+        force_local: If True, only load .env.local (skip .env.cloud)
     """
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parent
 
-    # Prefer local env for development
+    # Prefer cloud env for migrations (unless forced to local)
+    cloud_env_path = repo_root / '.env.cloud'
     local_env_path = repo_root / '.env.local'
-    cloud_env_path = script_dir / '.env.cloud'
 
-    if local_env_path.exists():
-        load_dotenv(local_env_path)
-        print(f"[INFO] Loaded environment from: {local_env_path}")
-        return
+    if force_local:
+        if local_env_path.exists():
+            load_dotenv(local_env_path)
+            print(f"[INFO] Loaded environment from: {local_env_path} (--local flag)")
+            return
+        else:
+            print(f"[ERROR] .env.local not found: {local_env_path}")
+            sys.exit(1)
 
     if cloud_env_path.exists():
         load_dotenv(cloud_env_path)
         print(f"[INFO] Loaded environment from: {cloud_env_path}")
         return
 
+    if local_env_path.exists():
+        load_dotenv(local_env_path)
+        print(f"[INFO] Loaded environment from: {local_env_path}")
+        return
+
     # If neither exists, fail fast with clear message
     print("[ERROR] No environment file found for migration runner.")
-    print(f"  Checked: {local_env_path}")
     print(f"  Checked: {cloud_env_path}")
+    print(f"  Checked: {local_env_path}")
     sys.exit(1)
 
 def get_warehouse_connection():
     """Create connection to warehouse database"""
+    driver = os.getenv('TARGET_DRIVER')
     server = os.getenv('TARGET_SERVER')
     database = os.getenv('TARGET_DATABASE')
     username = os.getenv('TARGET_USERNAME')
     password = os.getenv('TARGET_PASSWORD')
     
-    if not all([server, database, username, password]):
+    if not all([driver, server, database, username, password]):
         print("[ERROR] Missing warehouse credentials in .env.cloud")
-        print("Required: TARGET_SERVER, TARGET_DATABASE, TARGET_USERNAME, TARGET_PASSWORD")
+        print("Required: TARGET_DRIVER, TARGET_SERVER, TARGET_DATABASE, TARGET_USERNAME, TARGET_PASSWORD")
         sys.exit(1)
     
     connection_string = (
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"DRIVER={{{driver}}};"
         f"SERVER={server};"
         f"DATABASE={database};"
         f"UID={username};"
@@ -166,13 +179,14 @@ def list_migrations():
     
     return sql_files
 
-def run_migration(file_path=None, migration_name=None):
+def run_migration(file_path=None, migration_name=None, force_local=False):
     """
     Run a specific migration file
     
     Args:
         file_path: Full path to migration file
         migration_name: Name of migration file (e.g., '001_create_etl_progress_table.sql')
+        force_local: If True, use .env.local instead of .env.cloud
     """
     # Determine migration file
     if file_path:
@@ -200,7 +214,7 @@ def run_migration(file_path=None, migration_name=None):
     print()
     
     # Load environment
-    load_environment()
+    load_environment(force_local=force_local)
     print()
     
     # Read SQL file
@@ -213,16 +227,16 @@ def run_migration(file_path=None, migration_name=None):
     
     print(f"[INFO] SQL file size: {len(sql_content)} characters")
     
-    # Confirmation
+    # Confirmation (skip in non-interactive mode)
     print()
     print("This will execute the SQL migration against your warehouse database.")
     print()
-    print("[INFO] Starting in 3 seconds...")
-    print("[INFO] Press Ctrl+C to cancel...")
-    print()
-    
-    import time
     try:
+        print("[INFO] Starting in 3 seconds...")
+        print("[INFO] Press Ctrl+C to cancel...")
+        print()
+        
+        import time
         for i in range(3, 0, -1):
             print(f"  {i}...")
             time.sleep(1)
@@ -230,6 +244,10 @@ def run_migration(file_path=None, migration_name=None):
         print()
         print("[CANCELLED] User interrupted")
         sys.exit(0)
+    except EOFError:
+        # Non-interactive mode, skip countdown
+        print("[INFO] Non-interactive mode, proceeding immediately...")
+        print()
     
     print()
     
@@ -258,8 +276,13 @@ def run_migration(file_path=None, migration_name=None):
         print()
         return False
 
-def run_all_migrations():
-    """Run all migrations in order"""
+def run_all_migrations(skip_confirmation=False, force_local=False):
+    """Run all migrations in order
+    
+    Args:
+        skip_confirmation: If True, skip user confirmation prompt
+        force_local: If True, use .env.local instead of .env.cloud
+    """
     print()
     print("="*80)
     print(" "*20 + "RUN ALL SQL MIGRATIONS")
@@ -279,18 +302,23 @@ def run_all_migrations():
     print()
     
     # Confirmation
-    print("This will execute ALL migrations in order against your warehouse.")
-    print()
-    print("[INFO] Press Enter to continue or Ctrl+C to cancel...")
-    try:
-        input()
-    except KeyboardInterrupt:
+    if not skip_confirmation:
+        print("This will execute ALL migrations in order against your warehouse.")
         print()
-        print("[CANCELLED] User interrupted")
-        sys.exit(0)
+        print("[INFO] Press Enter to continue or Ctrl+C to cancel...")
+        try:
+            input()
+        except KeyboardInterrupt:
+            print()
+            print("[CANCELLED] User interrupted")
+            sys.exit(0)
+        except EOFError:
+            # Non-interactive mode, skip confirmation
+            print("[INFO] Non-interactive mode, proceeding...")
+            print()
     
     # Load environment
-    load_environment()
+    load_environment(force_local=force_local)
     print()
     
     # Connect to warehouse
@@ -333,11 +361,11 @@ def run_all_migrations():
     print()
     
     if failed == 0:
-        print("  ✓ All migrations completed successfully!")
+        print("  [OK] All migrations completed successfully!")
         print()
         return True
     else:
-        print("  ✗ Some migrations failed")
+        print("  [ERROR] Some migrations failed")
         print()
         return False
 
@@ -373,13 +401,15 @@ def main():
         sys.exit(1)
     
     command = sys.argv[1]
+    skip_confirmation = '--yes' in sys.argv or '-y' in sys.argv
+    force_local = '--local' in sys.argv
     
     if command.lower() == 'all':
         # Run all migrations
-        success = run_all_migrations()
+        success = run_all_migrations(skip_confirmation=skip_confirmation, force_local=force_local)
     else:
         # Run specific migration
-        success = run_migration(migration_name=command)
+        success = run_migration(migration_name=command, force_local=force_local)
     
     sys.exit(0 if success else 1)
 

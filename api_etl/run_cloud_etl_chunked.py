@@ -16,16 +16,16 @@ Date: November 7, 2025
 import sys
 import os
 from datetime import datetime
-from dotenv import load_dotenv
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api_etl.extract_from_api_chunked import extract_and_load_chunked, clear_progress
 from api_etl.transform_api_to_facts import transform_to_facts_optimized
+from utils.env_loader import load_environment
 
-# Load environment
-load_dotenv('.env.cloud')
+# Load environment - use .env.local for local development
+load_environment(force_local=True)
 
 
 def run_chunked_etl(start_date, end_date, chunk_size=50, enable_early_exit=True, 
@@ -105,7 +105,7 @@ def run_chunked_etl(start_date, end_date, chunk_size=50, enable_early_exit=True,
         print("="*80)
         print()
         
-        transform_to_facts_optimized(start_date, end_date)
+        transform_to_facts_optimized()
         
         # ============================================================
         # SUCCESS SUMMARY

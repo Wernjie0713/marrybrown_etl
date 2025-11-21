@@ -9,6 +9,10 @@ numpy==2.3.3
 pyodbc==5.2.0
 sqlalchemy==2.0.43
 
+# Orchestration & Resource Management
+prefect==3.0.5
+psutil==5.9.8
+
 # HTTP Client (for API calls)
 requests==2.32.3
 
@@ -20,8 +24,11 @@ python-dotenv==1.1.1
 
 # Date/Time Utilities
 python-dateutil==2.9.0.post0
-pytz==2025.2
+pytz==2024.2
 tzdata==2025.2
+
+# Monitoring & Metrics
+prometheus-client==0.21.0
 
 # Optional: For better type hints
 typing-extensions==4.15.0

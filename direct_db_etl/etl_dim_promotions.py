@@ -1,8 +1,17 @@
 import os
+import sys
+import time
 import pandas as pd
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+# Handle imports when running from different directories
+try:
+    from direct_db_etl.dimension_utils import DimensionAuditClient, dataframe_hash
+except ImportError:
+    # If running from within direct_db_etl directory, add parent to path
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from direct_db_etl.dimension_utils import DimensionAuditClient, dataframe_hash
 
 def get_db_engine(prefix):
     """Creates a SQLAlchemy engine from .env credentials."""
@@ -33,6 +42,8 @@ def get_promo_type(type_id):
 def main():
     """Main ETL function for the promotions dimension."""
     print("Starting ETL for dim_promotions...")
+    started_at = time.perf_counter()
+    audit_client = DimensionAuditClient(lambda: get_db_engine("TARGET"), "dim_promotions")
 
     try:
         # 1. EXTRACT
@@ -82,6 +93,12 @@ def main():
             'PromotionType', 'StartDate', 'EndDate', 'IsActive'
         ]]
 
+        current_hash = dataframe_hash(df_final)
+        latest = audit_client.get_latest()
+        if latest and latest.source_hash == current_hash and latest.row_count == len(df_final):
+            print(f"[CDC] No changes detected for dim_promotions ({len(df_final)} rows). Skipping load.")
+            return
+
         # 3. LOAD
         print("Connecting to target...")
         target_engine = get_db_engine("TARGET")
@@ -96,7 +113,8 @@ def main():
                 connection, 
                 schema='dbo',
                 if_exists='append', 
-                index=False
+                index=False,
+                chunksize=10000  # Optimized: added chunksize for better performance
             )
             
             print("Inserting 'No Promotion' record...")
@@ -111,11 +129,14 @@ def main():
             connection.execute(text("SET IDENTITY_INSERT [dbo].[dim_promotions] OFF;"))
             connection.commit()
 
-        print("✅ ETL for dim_promotions completed successfully!")
+        elapsed = time.perf_counter() - started_at
+        audit_client.upsert(source_hash=current_hash, row_count=len(df_final), duration_seconds=elapsed)
+        print(f"[SUCCESS] ETL for dim_promotions completed successfully in {elapsed:.2f}s!")
 
     except Exception as e:
-        print(f"❌ An error occurred during the ETL process: {e}")
+        print(f"[ERROR] An error occurred during the ETL process: {e}")
 
 if __name__ == "__main__":
-    load_dotenv('.env.cloud')  # Use cloud database credentials
+    from utils.env_loader import load_environment
+    load_environment(force_local=True)  # Use .env.local for local development
     main()

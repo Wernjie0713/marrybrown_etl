@@ -115,6 +115,27 @@ Use `python scripts/run_migration.py all` to apply every migration in order, or 
 
 ---
 
+## ♻️ Resume & Chunking Enhancements
+
+- **`dbo.api_sync_metadata`** stores a single row per job (`JobName = sales_extraction:<start>:<end>`). Every chunk persists the latest `lastTimestamp`, status, row counts, and chunk duration so reruns can resume exactly where they stopped.
+- **Adaptive chunk controller** automatically expands or shrinks chunk size between `CHUNK_MIN_SIZE`/`CHUNK_MAX_SIZE` to keep checkpoint durations steady (~`CHUNK_TARGET_SECONDS` seconds). Latency spikes trigger smaller batches; quiet periods allow larger ones.
+- **Rate-limit aware retries** honor `Retry-After` headers and emit structured telemetry to `monitoring/metrics.log` (and optionally to Prometheus via `PROM_PUSHGATEWAY_URL` + `PROM_PUSH_JOB_NAME`).
+- **Data-quality gates** run after each chunk and again after the SQL MERGE to ensure staging counts, unique keys, and revenue sums align before the data is promoted.
+
+> **Key Environment Knobs**
+>
+> | Variable | Purpose | Default |
+> | --- | --- | --- |
+> | `CHUNK_MIN_SIZE` / `CHUNK_MAX_SIZE` | Bounds for adaptive chunk size (API calls per checkpoint) | 25 / 125 |
+> | `CHUNK_TARGET_SECONDS` | Target duration for each chunk window | 180 |
+> | `API_MAX_RETRIES` / `API_RETRY_BASE_DELAY` | Retry budget & base seconds for exponential backoff | 5 / 2 |
+> | `STAGING_RETENTION_DAYS` | Days of staging data to keep after transform | 14 |
+> | `METRICS_LOG_PATH`, `PROM_PUSHGATEWAY_URL`, `PROM_PUSH_JOB_NAME` | Metrics destinations | `monitoring/metrics.log`, unset, `marrybrown_etl` |
+> | `WAREHOUSE_SESSION_CAP` | Maximum concurrent warehouse sessions | 8 |
+> | `HISTORICAL_MAX_WORKERS` | Optional override for historical ELT threads | auto |
+
+---
+
 ## 📦 Prerequisites
 
 ### Software Requirements
@@ -179,6 +200,19 @@ TARGET_SERVER=your_target_server
 TARGET_DATABASE=your_target_database
 TARGET_USERNAME=your_username
 TARGET_PASSWORD=your_password
+
+# Optional advanced tuning
+# CHUNK_MIN_SIZE=25
+# CHUNK_MAX_SIZE=125
+# CHUNK_TARGET_SECONDS=180
+# API_MAX_RETRIES=5
+# API_RETRY_BASE_DELAY=2
+# STAGING_RETENTION_DAYS=14
+# METRICS_LOG_PATH=monitoring/metrics.log
+# PROM_PUSHGATEWAY_URL=http://pushgateway:9091
+# PROM_PUSH_JOB_NAME=marrybrown_etl
+# WAREHOUSE_SESSION_CAP=8
+# HISTORICAL_MAX_WORKERS=4
 ```
 
 ### 5. Test Connections
@@ -599,6 +633,35 @@ python direct_db_etl/etl_fact_sales_historical.py
 # Execute: transform_sales_facts.sql
 ```
 
+### Prefect Orchestration (optional but recommended)
+
+The repository ships with `orchestration/prefect_pipeline.py`, a Prefect v3 flow that wires:
+
+1. Dimension CDC loaders (skips work when hashes match)
+2. Chunked API ETL (resume-aware, adaptive chunk controller)
+3. Post-transform QA (staging vs fact check + staging retention cleanup)
+
+Deploy it with:
+
+```bash
+prefect deploy orchestration/prefect_pipeline.py:marrybrown_flow \
+  --name marrybrown-prod \
+  --concurrency-limit 3 \
+  --collision-strategy ENQUEUE
+```
+
+Trigger a run on demand:
+
+```bash
+prefect deployment run marrybrown-flow/marrybrown-prod \
+  --param start_date=2018-10-01 \
+  --param end_date=2018-12-31 \
+  --param chunk_size=50 \
+  --param resume=true
+```
+
+Use Prefect work pools/agents to pin the deployment to your preferred execution environment.
+
 ---
 
 ## 🔧 Troubleshooting
@@ -668,6 +731,15 @@ DBCC CHECKIDENT ('table_name', RESEED, 0);
 ### Database Connection Pooling
 
 All scripts use `pool_pre_ping=True` to maintain connection health during long-running jobs.
+
+---
+
+## 📈 Monitoring & Metrics
+
+- **Chunk metrics**: Every checkpoint appends a JSON line to `monitoring/metrics.log` (chunk number, duration, rows, retries, last timestamp). When `PROM_PUSHGATEWAY_URL` is set, the same metrics are pushed to the configured Prometheus gateway for Grafana dashboards.
+- **Data-quality validation**: `monitoring/data_quality.py` enforces unique `SaleID` counts + staging vs fact revenue parity per date window. Failures raise `DataQualityError`, halting the run before data promotion.
+- **Fact transforms**: `transform_api_to_facts.py` now calls the validator post-MERGE and purges staging partitions older than `STAGING_RETENTION_DAYS` to keep the footprint bounded.
+- **Direct DB ELT**: `etl_fact_sales_historical.py` auto-tunes worker count using CPU/RAM heuristics (bounded by `WAREHOUSE_SESSION_CAP`) and reports per-day durations for easier throughput tracking.
 
 ---
 

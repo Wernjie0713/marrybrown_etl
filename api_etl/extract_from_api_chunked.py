@@ -18,6 +18,9 @@ import json
 import sys
 import os
 import uuid
+import random
+import time
+from typing import Optional
 import pandas as pd
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -28,9 +31,16 @@ from dotenv import load_dotenv
 from urllib.parse import quote_plus
 import pyodbc
 from config_api import (
-    API_HOST, APP_ID, TOKEN, AUTH_LEVEL,
-    BATCH_SIZE, MAX_API_CALLS
+    API_HOST,
+    APP_ID,
+    TOKEN,
+    AUTH_LEVEL,
+    BATCH_SIZE,
+    MAX_API_CALLS,
 )
+from monitoring import DataQualityValidator, MetricsEmitter, DataQualityError, MetricTags
+from api_etl.metadata_store import ApiSyncMetadataStore
+from api_etl.chunk_controller import AdaptiveChunkController, ChunkTuningConfig
 
 _api_session = None
 
@@ -212,12 +222,12 @@ def batch_insert_dataframe(conn, df: pd.DataFrame, table_name: str) -> None:
     cols_to_rename = {col: mapping[col] for col in cols_to_use if col in mapping}
     df_filtered = df_filtered.rename(columns=cols_to_rename)
     cols_to_use = list(cols_to_rename.values())
-
+    
     # Build column list and placeholders
     col_list = ", ".join(cols_to_use)
     placeholders = ", ".join(["?" for _ in cols_to_use])
     sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
-
+    
     print(f"    [DEBUG] SQL: {sql[:150]}...")
     print(f"    [DEBUG] FULL COLUMN LIST ({len(cols_to_use)} columns):")
     for i, col in enumerate(cols_to_use):
@@ -234,7 +244,7 @@ def batch_insert_dataframe(conn, df: pd.DataFrame, table_name: str) -> None:
         for col in table_decimal_hints
     }
     decimal_conversion_errors = []
-
+    
     for row_idx, row in enumerate(df_filtered.itertuples(index=False, name=None)):
         converted_row = []
         for col_idx, val in enumerate(row):
@@ -311,38 +321,38 @@ def batch_insert_dataframe(conn, df: pd.DataFrame, table_name: str) -> None:
 
     print(f"    [DEBUG] Total rows to insert: {len(rows)}")
     if ENABLE_VERBOSE_DEBUG:
-        print(f"    [DEBUG] First row preview:")
-        
-        # Write detailed debug info to file
+    print(f"    [DEBUG] First row preview:")
+    
+    # Write detailed debug info to file
         # Create debug directory if it doesn't exist
         debug_dir = os.path.join(os.getcwd(), 'debug')
         os.makedirs(debug_dir, exist_ok=True)
         debug_file_path = os.path.join(debug_dir, 'etl_debug.txt')
         debug_file = open(debug_file_path, 'w', encoding='utf-8')
-        debug_file.write(f"COLUMNS BEING INSERTED ({len(cols_to_use)} total):\n")
-        debug_file.write("=" * 80 + "\n")
-        for i, col in enumerate(cols_to_use):
-            debug_file.write(f"{i+1}. {col}\n")
-        debug_file.write("\n" + "=" * 80 + "\n")
-        debug_file.write("FIRST ROW DATA:\n")
-        debug_file.write("=" * 80 + "\n")
-        
-        if rows:
-            for i, (col, val) in enumerate(zip(cols_to_use, rows[0])):
-                if val is None:
-                    msg = f"{i+1}. {col}: NULL"
-                    print(f"      {msg}")
-                    debug_file.write(msg + "\n")
-                elif isinstance(val, str):
-                    msg = f"{i+1}. {col}: str(len={len(val)}) = {val[:100]}"
-                    print(f"      {msg}...")
-                    debug_file.write(msg + "\n")
-                else:
-                    msg = f"{i+1}. {col}: {type(val).__name__} = {val}"
-                    print(f"      {msg}")
-                    debug_file.write(msg + "\n")
-        
-        debug_file.close()
+    debug_file.write(f"COLUMNS BEING INSERTED ({len(cols_to_use)} total):\n")
+    debug_file.write("=" * 80 + "\n")
+    for i, col in enumerate(cols_to_use):
+        debug_file.write(f"{i+1}. {col}\n")
+    debug_file.write("\n" + "=" * 80 + "\n")
+    debug_file.write("FIRST ROW DATA:\n")
+    debug_file.write("=" * 80 + "\n")
+    
+    if rows:
+        for i, (col, val) in enumerate(zip(cols_to_use, rows[0])):
+            if val is None:
+                msg = f"{i+1}. {col}: NULL"
+                print(f"      {msg}")
+                debug_file.write(msg + "\n")
+            elif isinstance(val, str):
+                msg = f"{i+1}. {col}: str(len={len(val)}) = {val[:100]}"
+                print(f"      {msg}...")
+                debug_file.write(msg + "\n")
+            else:
+                msg = f"{i+1}. {col}: {type(val).__name__} = {val}"
+                print(f"      {msg}")
+                debug_file.write(msg + "\n")
+    
+    debug_file.close()
         print(f"    [DEBUG] Full debug output written to {debug_file_path}")
     
     # Use executemany for batch insert
@@ -357,7 +367,7 @@ def batch_insert_dataframe(conn, df: pd.DataFrame, table_name: str) -> None:
         print(f"    [DEBUG] Number of values in first row: {len(rows[0]) if rows else 0}")
         print(f"    [DEBUG] First row data types: {[type(v).__name__ for v in rows[0]] if rows else 'No rows'}")
         if ENABLE_VERBOSE_DEBUG and problematic_columns:
-            print(f"    [DEBUG] Problematic columns summary: {problematic_columns}")
+        print(f"    [DEBUG] Problematic columns summary: {problematic_columns}")
         raise
 
     elapsed = (datetime.now() - start).total_seconds()
@@ -710,11 +720,34 @@ def get_api_session():
     return _api_session
 
 
-# Load environment variables for cloud deployment
-ENV_PATH = os.path.join(os.path.dirname(__file__), '.env.cloud')
-load_dotenv(ENV_PATH)
+# Load environment variables - use .env.local for local development
+# Note: This will be loaded by the calling script, but we keep it here for standalone execution
+import sys
+from pathlib import Path
+# Add parent directory to path for utils import
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+try:
+    from utils.env_loader import load_environment
+    load_environment(force_local=True)
+except ImportError:
+    # Fallback if utils not available
+    from dotenv import load_dotenv
+    repo_root = Path(__file__).resolve().parent.parent
+    local_env = repo_root / '.env.local'
+    if local_env.exists():
+        load_dotenv(local_env)
+    else:
+        cloud_env = repo_root / '.env.cloud'
+        if cloud_env.exists():
+            load_dotenv(cloud_env)
 
 ENABLE_VERBOSE_DEBUG = os.getenv("ENABLE_VERBOSE_DEBUG", "false").lower() == "true"
+CHUNK_MIN_SIZE = int(os.getenv("CHUNK_MIN_SIZE", "25"))
+CHUNK_MAX_SIZE = int(os.getenv("CHUNK_MAX_SIZE", "125"))
+CHUNK_TARGET_SECONDS = float(os.getenv("CHUNK_TARGET_SECONDS", "180"))
+API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", "5"))
+API_RETRY_BASE_DELAY = float(os.getenv("API_RETRY_BASE_DELAY", "2"))
+STAGING_RETENTION_DAYS = int(os.getenv("STAGING_RETENTION_DAYS", "14"))
 
 def serialize_complex_fields(data):
     """
@@ -763,9 +796,14 @@ def get_warehouse_engine():
     user = os.getenv("TARGET_USERNAME", "sa")
     password = quote_plus(os.getenv("TARGET_PASSWORD", ""))
     
+    # Add timeout parameters for slow VPN connections
+    # timeout: Connection timeout in seconds
+    # login_timeout: Login timeout in seconds
     connection_uri = (
         f"mssql+pyodbc://{user}:{password}@{server}/{database}?driver={driver}"
         "&TrustServerCertificate=yes"
+        "&timeout=60"           # Connection timeout: 60 seconds
+        "&login_timeout=60"      # Login timeout: 60 seconds
     )
     
     # Create engine with fresh connections (no connection pool caching)
@@ -773,12 +811,43 @@ def get_warehouse_engine():
     engine = create_engine(
         connection_uri, 
         poolclass=NullPool,  # Disable connection pooling to avoid schema caching
-        echo=False
+        echo=False,
+        connect_args={
+            "timeout": 60,           # Connection timeout
+            "login_timeout": 60      # Login timeout
+        }
     )
     
     print(f"[DEBUG] Warehouse connection target: server={server}, database={database}, user={user}")
     
     return engine
+
+
+_metadata_store: Optional[ApiSyncMetadataStore] = None
+_metrics_emitters: dict[str, MetricsEmitter] = {}
+_quality_validator: Optional[DataQualityValidator] = None
+
+
+def get_metadata_store() -> ApiSyncMetadataStore:
+    global _metadata_store
+    if _metadata_store is None:
+        _metadata_store = ApiSyncMetadataStore(get_warehouse_engine)
+    return _metadata_store
+
+
+def get_metrics_emitter(job_name: str) -> MetricsEmitter:
+    emitter = _metrics_emitters.get(job_name)
+    if emitter is None:
+        emitter = MetricsEmitter(tags=MetricTags(job_name=job_name))
+        _metrics_emitters[job_name] = emitter
+    return emitter
+
+
+def get_quality_validator() -> DataQualityValidator:
+    global _quality_validator
+    if _quality_validator is None:
+        _quality_validator = DataQualityValidator(get_warehouse_engine)
+    return _quality_validator
 
 
 def get_progress(job_id='sales_extraction'):
@@ -1142,6 +1211,51 @@ def load_chunk_to_staging_upsert(sales_chunk, chunk_number, start_date, end_date
         raise
 
 
+def perform_api_call(session, url: str, metrics: MetricsEmitter):
+    """
+    Execute an API call with rate-limit awareness and exponential backoff.
+    Returns (response, latency_seconds, retries_used).
+    """
+    attempt = 0
+    while attempt < API_MAX_RETRIES:
+        attempt += 1
+        start_time = time.perf_counter()
+        try:
+            response = session.get(url, timeout=90)
+            latency = time.perf_counter() - start_time
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, ConnectionResetError) as exc:
+            wait = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            wait += random.uniform(0.5, 1.5)
+            metrics.emit_retry_event(attempt=attempt, wait_seconds=wait, reason=str(exc))
+            time.sleep(wait)
+            continue
+
+        if response.status_code == 200:
+            return response, latency, attempt - 1
+
+        if response.status_code in (429, 503):
+            retry_after = response.headers.get("Retry-After")
+            try:
+                wait = float(retry_after)
+            except (TypeError, ValueError):
+                wait = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+        elif 500 <= response.status_code < 600:
+            wait = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+        else:
+            response.raise_for_status()
+            break
+
+        wait += random.uniform(0.25, 1.0)
+        metrics.emit_retry_event(
+            attempt=attempt,
+            wait_seconds=wait,
+            reason=f"HTTP {response.status_code}",
+        )
+        time.sleep(wait)
+
+    raise RuntimeError(f"API request {url} failed after {API_MAX_RETRIES} attempts")
+
+
 def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_exit=True, 
                              buffer_days=7, resume=True, force_restart=False):
     """
@@ -1159,7 +1273,20 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
     Returns:
         dict: Statistics about extraction and loading
     """
-    job_id = 'sales_extraction'
+    progress_job_id = 'sales_extraction'
+    metadata_job_name = f"{progress_job_id}:{start_date}:{end_date}"
+    metadata_store = get_metadata_store()
+    metadata_store.ensure_job(metadata_job_name, start_date=start_date, end_date=end_date)
+    metrics_emitter = get_metrics_emitter(metadata_job_name)
+    quality_validator = get_quality_validator()
+    chunk_controller = AdaptiveChunkController(
+        initial_size=chunk_size,
+        config=ChunkTuningConfig(
+            min_size=CHUNK_MIN_SIZE,
+            max_size=CHUNK_MAX_SIZE,
+            target_duration_seconds=CHUNK_TARGET_SECONDS,
+        ),
+    )
     
     # Handle force restart
     if force_restart:
@@ -1167,13 +1294,25 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
         print("="*80)
         print(" "*25 + "FORCE RESTART MODE")
         print("="*80)
-        clear_progress(job_id)
+        clear_progress(progress_job_id)
+        metadata_store.update_checkpoint(
+            metadata_job_name,
+            last_timestamp=None,
+            records_extracted=0,
+            status='READY',
+            date_range_start=start_date,
+            date_range_end=end_date,
+            chunk_number=None,
+            chunk_row_count=None,
+            chunk_duration_seconds=None,
+            chunk_completed_at=None,
+        )
         print()
     
-    # Check for saved progress
     saved_progress = None
+    metadata_state = metadata_store.get_state(metadata_job_name)
     if resume and not force_restart:
-        saved_progress = get_progress(job_id)
+        saved_progress = get_progress(progress_job_id)
         if saved_progress and saved_progress.get('last_timestamp'):
             print()
             print("="*80)
@@ -1185,6 +1324,8 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
             print(f"  Sales Already Loaded: {saved_progress['total_sales_loaded']:,}")
             print(f"  Items Already Loaded: {saved_progress['total_items_loaded']:,}")
             print(f"  Payments Already Loaded: {saved_progress['total_payments_loaded']:,}")
+            if metadata_state and metadata_state.last_timestamp:
+                print(f"  Metadata Resume Timestamp: {metadata_state.last_timestamp}")
             print()
             print("[RESUME] Continuing from last saved checkpoint...")
             print("="*80)
@@ -1195,7 +1336,8 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
     print(" "*20 + "CHUNKED EXTRACTION & LOADING")
     print("="*80)
     print(f"  Target Date Range: {start_date} to {end_date}")
-    print(f"  Chunk Size: {chunk_size} API calls (~{chunk_size}K records)")
+    print(f"  Chunk Size: start={chunk_controller.current_chunk_size} "
+          f"(min={CHUNK_MIN_SIZE}, max={CHUNK_MAX_SIZE}) API calls")
     print(f"  Max API Calls: {MAX_API_CALLS if MAX_API_CALLS else 'UNLIMITED'}")
     print(f"  Smart Early Exit: {'ENABLED' if enable_early_exit else 'DISABLED'}")
     print(f"  Resume Mode: {'ENABLED' if resume else 'DISABLED'}")
@@ -1203,9 +1345,9 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
         print(f"  Buffer Days: {buffer_days}")
     print()
     print("  Strategy:")
-    print(f"    - Extract {chunk_size} API calls -> Load to staging -> Save progress -> Clear memory")
-    print(f"    - Repeat until target date range fully covered")
-    print(f"    - Progress saved every ~{chunk_size}K records (crash-safe & resumable)")
+    print("    - Adaptive chunk controller keeps checkpoints ~3 minutes each")
+    print("    - Each chunk loads to staging, validates, emits metrics, persists resume point")
+    print("    - Automatic retry/backoff + metadata checkpoints make the run crash-safe")
     print()
     
     # Parse dates
@@ -1216,103 +1358,150 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
     # Initialize tracking variables
     accumulated_sales = []
     call_count = 0
-    chunk_count = 0
+    chunk_count = metadata_state.last_chunk_number if metadata_state and metadata_state.last_chunk_number else 0
     consecutive_out_of_range = 0
     latest_date_overall = None
     
     total_stats = {"sales": 0, "items": 0, "payments": 0, "api_calls": 0}
+    last_timestamp = None
     
-    # Resume from saved progress if available
-    if saved_progress and saved_progress.get('last_timestamp') and resume and not force_restart:
-        last_timestamp = saved_progress['last_timestamp']
-        call_count = saved_progress['last_call_count'] or 0
-        chunk_count = call_count // chunk_size
-        total_stats['sales'] = saved_progress['total_sales_loaded']
-        total_stats['items'] = saved_progress['total_items_loaded']
-        total_stats['payments'] = saved_progress['total_payments_loaded']
+    if saved_progress and resume and not force_restart:
+        call_count = saved_progress.get('last_call_count') or 0
+        total_stats['sales'] = saved_progress.get('total_sales_loaded', 0)
+        total_stats['items'] = saved_progress.get('total_items_loaded', 0)
+        total_stats['payments'] = saved_progress.get('total_payments_loaded', 0)
+        last_timestamp = (
+            metadata_state.last_timestamp
+            if metadata_state and metadata_state.last_timestamp
+            else saved_progress.get('last_timestamp')
+        )
         print(f"[RESUME] Starting from API call #{call_count + 1} (Chunk #{chunk_count + 1})")
         print()
+    elif metadata_state and metadata_state.last_timestamp:
+        last_timestamp = metadata_state.last_timestamp
+        print(f"[RESUME] Metadata indicates last timestamp {last_timestamp}. Continuing...")
+        print()
     else:
-        last_timestamp = None
         print("[START] Beginning fresh extraction from the beginning...")
+        print()
+    
+    chunk_controller.start_chunk_window()
+    calls_in_current_chunk = 0
+    retries_in_chunk = 0
+    total_retries = 0
+
+    def flush_chunk(reason_label: str) -> None:
+        nonlocal accumulated_sales, chunk_count, calls_in_current_chunk, retries_in_chunk, total_stats
+        if not accumulated_sales:
+            print(f"[{reason_label}] No accumulated sales to flush.")
+            return
+        chunk_number = chunk_count + 1
+        print()
+        print(f"{'='*80}")
+        print(f"[{reason_label} {chunk_number}] Saving chunk after {call_count} API calls...")
+        print(f"{'='*80}")
+        chunk_duration = chunk_controller.chunk_duration()
+        try:
+            stats = load_chunk_to_staging_upsert(accumulated_sales, chunk_number, start_date, end_date, debug_mode=True)
+            total_stats["sales"] += stats["sales"]
+            total_stats["items"] += stats["items"]
+            total_stats["payments"] += stats["payments"]
+
+            dq = quality_validator.validate_staging_chunk(
+                start_date=start_date,
+                end_date=end_date,
+                expected_sales=stats["sales"],
+            )
+            if dq.violations:
+                raise DataQualityError("; ".join(dq.violations.values()))
+
+            now_utc = datetime.utcnow()
+            metadata_store.update_checkpoint(
+                metadata_job_name,
+                last_timestamp=last_timestamp,
+                records_extracted=total_stats["sales"],
+                status='IN_PROGRESS',
+                date_range_start=start_date,
+                date_range_end=end_date,
+                chunk_number=chunk_number,
+                chunk_row_count=stats["sales"],
+                chunk_duration_seconds=chunk_duration,
+                chunk_completed_at=now_utc,
+            )
+
+            metrics_emitter.emit_chunk_metrics(
+                chunk_number=chunk_number,
+                duration_seconds=chunk_duration,
+                row_count=stats["sales"],
+                api_calls_in_chunk=calls_in_current_chunk,
+                last_timestamp=last_timestamp,
+                retries=retries_in_chunk,
+            )
+
+            save_progress(
+                job_id=progress_job_id,
+                last_timestamp=last_timestamp,
+                call_count=call_count,
+                start_date=start_date,
+                end_date=end_date,
+                chunk_size=chunk_controller.current_chunk_size,
+                total_stats=total_stats,
+                status='IN_PROGRESS'
+            )
+        finally:
+            chunk_count = chunk_number
+            accumulated_sales = []
+            calls_in_current_chunk = 0
+            retries_in_chunk = 0
+            chunk_controller.adjust_after_flush(chunk_duration)
+            chunk_controller.reset_chunk_window()
+            print(f"[{reason_label} {chunk_number}] [OK] Data & Progress saved! Memory cleared.")
+            print(f"  Total so far: {total_stats['sales']:,} sales, {total_stats['items']:,} items")
+            print(f"  Resume point: API call #{call_count}, timestamp={last_timestamp}")
         print()
     
     session = get_api_session()
     
     try:
         while True:
-            # Safety cap check
             if MAX_API_CALLS and call_count >= MAX_API_CALLS:
                 print(f"  [SAFETY CAP] Reached {MAX_API_CALLS} calls")
-                # Save remaining accumulated sales
-                if accumulated_sales:
-                    chunk_count += 1
-                    stats = load_chunk_to_staging_upsert(accumulated_sales, chunk_count, start_date, end_date, debug_mode=True)
-                    total_stats["sales"] += stats["sales"]
-                    total_stats["items"] += stats["items"]
-                    total_stats["payments"] += stats["payments"]
+                flush_chunk("SAFETY_CAP")
                 break
             
             call_count += 1
+            calls_in_current_chunk += 1
             
-            # Fetch one batch from API with retry logic
-            max_retries = 3
-            retry_delay = 2  # seconds
-            retry_count = 0
-            res = None
+                url_path = f"/apps/v2/sync/sales?limit={BATCH_SIZE}&mode=ByDateTime"
+                if last_timestamp:
+                    url_path += f"&starttimestamp={last_timestamp}"
+                url = f"https://{API_HOST}{url_path}"
             
-            while retry_count <= max_retries:
-                try:
-                    url_path = f"/apps/v2/sync/sales?limit={BATCH_SIZE}&mode=ByDateTime"
-                    if last_timestamp:
-                        url_path += f"&starttimestamp={last_timestamp}"
-                    
-                    url = f"https://{API_HOST}{url_path}"
-                    res = session.get(url, timeout=60)
-                    
-                    # Success - break out of retry loop
+            try:
+                res, latency, retries_used = perform_api_call(session, url, metrics_emitter)
+            except RuntimeError as api_err:
+                print(f"  [FATAL] {api_err}")
                     break
-                    
-                except (requests.exceptions.ConnectionError, 
-                        requests.exceptions.Timeout,
-                        ConnectionResetError) as e:
-                    retry_count += 1
-                    if retry_count > max_retries:
-                        print(f"  [ERROR] API call failed after {max_retries} retries: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        break  # Give up after max retries
-                    else:
-                        wait_time = retry_delay * (2 ** (retry_count - 1))  # Exponential backoff
-                        print(f"  [RETRY {retry_count}/{max_retries}] Connection error, retrying in {wait_time}s... ({e})")
-                        import time
-                        time.sleep(wait_time)
-                        # Recreate session on retry to get fresh connection
-                        session = get_api_session()
-            
-            # If we exhausted retries, break the main loop
-            if retry_count > max_retries or res is None:
-                print(f"  [FATAL] Cannot continue - API connection failed")
-                break
                 
-            if res.status_code != 200:
-                print(f"  [ERROR] API returned {res.status_code}: {res.text}")
-                break
+            chunk_controller.record_latency(latency)
+            total_retries += retries_used
+            retries_in_chunk += retries_used
             
             try:
                 response = res.json()
+            except ValueError as json_err:
+                print(f"  [ERROR] Failed to parse API response: {json_err}")
+                break
                 
                 if not response.get('ok'):
                     print(f"  [COMPLETE] API returned ok=false, end of data")
                     break
                 
                 sales_batch = response.get('data', {}).get('sales', [])
-                
                 if not sales_batch:
                     print(f"  [COMPLETE] API returned empty batch")
                     break
                 
-                # Analyze dates in batch (use same fallback parsing as loader)
                 def _parse_any_date(sale):
                     for key, fmts in [
                         ('businessDateTime', ["%Y-%m-%d %H:%M:%S"]),
@@ -1329,13 +1518,8 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
                                 continue
                     return None
                 
-                batch_dates = []
-                for sale in sales_batch:
-                    parsed = _parse_any_date(sale)
-                    if parsed:
-                        batch_dates.append(parsed)
-                
-                # Print progress (every 10 calls)
+            batch_dates = [dt for sale in sales_batch if (dt := _parse_any_date(sale))]
+            
                 if call_count % 10 == 0 or batch_dates:
                     if batch_dates:
                         min_date = min(batch_dates)
@@ -1345,7 +1529,6 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
                     else:
                         print(f"[Call {call_count}] {len(sales_batch)} records (no date) | Total: {len(accumulated_sales) + len(sales_batch):,}")
                 
-                # Smart exit logic
                 if enable_early_exit and batch_dates:
                     max_date = max(batch_dates)
                     if max_date > buffer_end:
@@ -1357,88 +1540,46 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
                                 print(f"[SMART EXIT] 3 consecutive batches beyond target range")
                                 print(f"  Latest date: {max_date.date()}")
                                 print(f"  Target end: {end_date} (+ {buffer_days} buffer)")
-                                # Save remaining and exit
                                 accumulated_sales.extend(sales_batch)
-                                if accumulated_sales:
-                                    chunk_count += 1
-                                    stats = load_chunk_to_staging_upsert(accumulated_sales, chunk_count, start_date, end_date, debug_mode=True)
-                                    total_stats["sales"] += stats["sales"]
-                                    total_stats["items"] += stats["items"]
-                                    total_stats["payments"] += stats["payments"]
+                            flush_chunk("SMART_EXIT")
                                 break
                         else:
                             consecutive_out_of_range = 0
                 
-                # Add to accumulated sales
                 accumulated_sales.extend(sales_batch)
-                
-                # Get next timestamp
                 last_timestamp = response.get('data', {}).get('lastTimestamp')
                 if not last_timestamp:
                     print(f"  [COMPLETE] No more timestamps available")
                     break
                 
-                # CHECKPOINT: Save chunk every chunk_size calls
-                if call_count % chunk_size == 0:
-                    chunk_count += 1
-                    print()
-                    print(f"{'='*80}")
-                    print(f"[CHECKPOINT {chunk_count}] Saving chunk after {call_count} API calls...")
-                    print(f"{'='*80}")
-                    
-                    stats = load_chunk_to_staging_upsert(accumulated_sales, chunk_count, start_date, end_date, debug_mode=True)
-                    total_stats["sales"] += stats["sales"]
-                    total_stats["items"] += stats["items"]
-                    total_stats["payments"] += stats["payments"]
-                    
-                    # Save progress to database for resume capability
-                    save_progress(
-                        job_id=job_id,
-                        last_timestamp=last_timestamp,
-                        call_count=call_count,
-                        start_date=start_date,
-                        end_date=end_date,
-                        chunk_size=chunk_size,
-                        total_stats=total_stats,
-                        status='IN_PROGRESS'
-                    )
-                    
-                    # Clear memory
-                    accumulated_sales = []
-                    
-                    print(f"[CHECKPOINT {chunk_count}] [OK] Data & Progress saved! Memory cleared.")
-                    print(f"  Total so far: {total_stats['sales']:,} sales, {total_stats['items']:,} items")
-                    print(f"  Resume point: API call #{call_count}, timestamp={last_timestamp}")
-                    print()
-                
-            except Exception as e:
-                print(f"  [ERROR] API call failed: {e}")
-                import traceback
-                traceback.print_exc()
-                break
+            if calls_in_current_chunk >= chunk_controller.current_chunk_size:
+                flush_chunk("CHECKPOINT")
         
-        # Save any remaining accumulated sales
         if accumulated_sales:
-            chunk_count += 1
-            print()
-            print(f"{'='*80}")
-            print(f"[FINAL CHUNK {chunk_count}] Saving remaining {len(accumulated_sales):,} sales...")
-            print(f"{'='*80}")
-            stats = load_chunk_to_staging_upsert(accumulated_sales, chunk_count, start_date, end_date, debug_mode=True)
-            total_stats["sales"] += stats["sales"]
-            total_stats["items"] += stats["items"]
-            total_stats["payments"] += stats["payments"]
+            flush_chunk("FINAL CHUNK")
         
         total_stats["api_calls"] = call_count
         
-        # Mark job as completed
+        metadata_store.update_checkpoint(
+            metadata_job_name,
+            last_timestamp=last_timestamp,
+            records_extracted=total_stats["sales"],
+            status='COMPLETED',
+            date_range_start=start_date,
+            date_range_end=end_date,
+            chunk_number=None,
+            chunk_row_count=None,
+            chunk_duration_seconds=None,
+            chunk_completed_at=datetime.utcnow(),
+        )
+        
         save_progress(
-            job_id=job_id,
+            job_id=progress_job_id,
             last_timestamp=last_timestamp,
             call_count=call_count,
             start_date=start_date,
             end_date=end_date,
-            chunk_size=chunk_size,
+            chunk_size=chunk_controller.current_chunk_size,
             total_stats=total_stats,
             status='COMPLETED'
         )
@@ -1452,6 +1593,7 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
         print(f"  Sales Loaded: {total_stats['sales']:,}")
         print(f"  Items Loaded: {total_stats['items']:,}")
         print(f"  Payments Loaded: {total_stats['payments']:,}")
+        print(f"  Total Retries: {total_retries}")
         if latest_date_overall:
             print(f"  Latest Date Reached: {latest_date_overall.date()}")
         print()
@@ -1470,17 +1612,58 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
         # Save interrupted state
         if last_timestamp:
             save_progress(
-                job_id=job_id,
+                job_id=progress_job_id,
                 last_timestamp=last_timestamp,
                 call_count=call_count,
                 start_date=start_date,
                 end_date=end_date,
-                chunk_size=chunk_size,
+                chunk_size=chunk_controller.current_chunk_size,
                 total_stats=total_stats,
                 status='INTERRUPTED'
             )
+        metadata_store.update_checkpoint(
+            metadata_job_name,
+            last_timestamp=last_timestamp,
+            records_extracted=total_stats["sales"],
+            status='INTERRUPTED',
+            date_range_start=start_date,
+            date_range_end=end_date,
+            chunk_number=None,
+            chunk_row_count=None,
+            chunk_duration_seconds=None,
+            chunk_completed_at=datetime.utcnow(),
+            )
         
         return total_stats
+    except DataQualityError as dq_err:
+        print()
+        print(f"[DATA QUALITY FAILURE] {dq_err}")
+        if last_timestamp:
+            save_progress(
+                job_id=progress_job_id,
+                last_timestamp=last_timestamp,
+                call_count=call_count,
+                start_date=start_date,
+                end_date=end_date,
+                chunk_size=chunk_controller.current_chunk_size,
+                total_stats=total_stats,
+                status='ERROR',
+                error_msg=str(dq_err)
+            )
+        metadata_store.update_checkpoint(
+            metadata_job_name,
+            last_timestamp=last_timestamp,
+            records_extracted=total_stats["sales"],
+            status='ERROR',
+            date_range_start=start_date,
+            date_range_end=end_date,
+            error_message=str(dq_err),
+            chunk_number=None,
+            chunk_row_count=None,
+            chunk_duration_seconds=None,
+            chunk_completed_at=datetime.utcnow(),
+        )
+        raise
     except Exception as e:
         print()
         print(f"[FATAL ERROR] {e}")
@@ -1490,15 +1673,28 @@ def extract_and_load_chunked(start_date, end_date, chunk_size=50, enable_early_e
         # Save error state
         if last_timestamp:
             save_progress(
-                job_id=job_id,
+                job_id=progress_job_id,
                 last_timestamp=last_timestamp,
                 call_count=call_count,
                 start_date=start_date,
                 end_date=end_date,
-                chunk_size=chunk_size,
+                chunk_size=chunk_controller.current_chunk_size,
                 total_stats=total_stats,
                 status='ERROR',
                 error_msg=str(e)
+            )
+        metadata_store.update_checkpoint(
+            metadata_job_name,
+            last_timestamp=last_timestamp,
+            records_extracted=total_stats["sales"],
+            status='ERROR',
+            date_range_start=start_date,
+            date_range_end=end_date,
+            error_message=str(e),
+            chunk_number=None,
+            chunk_row_count=None,
+            chunk_duration_seconds=None,
+            chunk_completed_at=datetime.utcnow(),
             )
         
         return total_stats

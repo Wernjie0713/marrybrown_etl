@@ -98,7 +98,7 @@ def test_optimized_etl_small_range():
         print("="*80)
         print()
         
-        transform_to_facts_optimized(START_DATE, END_DATE)
+        transform_to_facts_optimized()
         
         print("\n[OK] Fact transform complete\n")
         
@@ -186,7 +186,7 @@ def test_optimized_etl_single_month():
         print("="*80)
         print()
         
-        transform_to_facts_optimized(START_DATE, END_DATE)
+        transform_to_facts_optimized()
         
         # Success
         overall_end = datetime.now()

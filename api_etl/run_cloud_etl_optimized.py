@@ -115,7 +115,7 @@ def run_optimized_etl(start_date, end_date, enable_early_exit=True, buffer_days=
         print("="*80)
         print()
         
-        transform_to_facts_optimized(start_date, end_date)
+        transform_to_facts_optimized()
         
         # ============================================================
         # SUCCESS SUMMARY

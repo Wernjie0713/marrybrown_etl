@@ -8,6 +8,11 @@ import sys
 import os
 from datetime import datetime
 
+# Override chunk size limits for testing - MUST be set before importing ETL modules
+# This allows chunk_size=1 to actually work (default min is 25)
+os.environ["CHUNK_MIN_SIZE"] = "1"
+os.environ["CHUNK_MAX_SIZE"] = "1"  # Prevent adaptive growth during test
+
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,6 +27,7 @@ def test_date_range_fix():
     print("This test will:")
     print("1. Use broadened date range (2018-2025)")
     print("2. Run only 1 chunk (1 API call) for quick testing")
+    print("   (Chunk size limits overridden: MIN=1, MAX=1)")
     print("3. Show debug output with actual API dates")
     print("4. Verify data flows to staging tables")
     print()

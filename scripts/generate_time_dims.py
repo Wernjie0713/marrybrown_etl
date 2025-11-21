@@ -12,8 +12,8 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-# Load cloud environment variables
-load_dotenv('.env.cloud')
+# Load local environment variables (FakeRestaurantDB / local testing)
+load_dotenv('.env.local')
 
 def get_db_engine():
     """Creates a SQLAlchemy engine for the target warehouse."""

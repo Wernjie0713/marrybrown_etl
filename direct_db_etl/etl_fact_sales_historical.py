@@ -1,4 +1,5 @@
 import os
+import time
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -6,13 +7,42 @@ from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+try:
+    import psutil
+except ImportError:  # pragma: no cover - psutil optional
+    psutil = None
+
 # --- CONFIGURATION ---
 # Phase 2: Parquet-based ETL (Offline Processing)
 # Processing September 2025 data from exported Parquet files
 START_DATE = date(2025, 9, 1)
 END_DATE = date(2025, 9, 30)
 CHUNK_SIZE = 20000  # Process 20,000 rows at a time in memory
-MAX_WORKERS = 3     # Number of concurrent days to process
+WAREHOUSE_SESSION_CAP = int(os.getenv("WAREHOUSE_SESSION_CAP", "8"))
+
+
+def determine_worker_count() -> int:
+    env_override = os.getenv("HISTORICAL_MAX_WORKERS")
+    if env_override:
+        return max(1, int(env_override))
+
+    cpu_count = os.cpu_count() or 2
+    max_by_cpu = max(1, cpu_count - 1)
+
+    max_by_memory = 4
+    if psutil:
+        available_gb = psutil.virtual_memory().available / (1024 ** 3)
+        if available_gb < 4:
+            max_by_memory = 1
+        elif available_gb < 8:
+            max_by_memory = 2
+        elif available_gb < 16:
+            max_by_memory = 3
+    session_cap = max(1, WAREHOUSE_SESSION_CAP - 1)
+    return max(1, min(max_by_cpu, max_by_memory, session_cap))
+
+
+MAX_WORKERS = determine_worker_count()
 EXPORT_DIR = Path("C:/exports")  # Directory containing exported Parquet files
 MONTH_TO_PROCESS = "202509"  # September 2025
 
@@ -56,7 +86,7 @@ def process_single_day(day_to_process, sales_df, items_df, payments_df):
     - No IP firewall issues
     """
     day_str = day_to_process.strftime('%Y-%m-%d')
-    print(f"-> Starting process for {day_str}...")
+    start_ts = time.perf_counter()
     
     total_sales_rows = 0
     total_salesitem_rows = 0
@@ -111,9 +141,25 @@ def process_single_day(day_to_process, sales_df, items_df, payments_df):
         # Dispose engine after use
         target_engine.dispose()
 
-        return f"[OK] Successfully processed {day_str}: Loaded {total_sales_rows} sales, {total_salesitem_rows} items, and {total_payment_rows} payments."
+        duration = time.perf_counter() - start_ts
+        return {
+            "day": day_str,
+            "status": "OK",
+            "sales": total_sales_rows,
+            "items": total_salesitem_rows,
+            "payments": total_payment_rows,
+            "duration": duration
+        }
     except Exception as e:
-        return f"[FAILED] Error processing {day_str}: {e}"
+        return {
+            "day": day_str,
+            "status": "FAILED",
+            "error": str(e),
+            "sales": total_sales_rows,
+            "items": total_salesitem_rows,
+            "payments": total_payment_rows,
+            "duration": time.perf_counter() - start_ts
+        }
 
 def main():
     """Main ELT function for the historical sales fact data.
@@ -191,8 +237,11 @@ def main():
     print(f"Step 3: Loading sales data using {MAX_WORKERS} parallel workers...")
     print(f"Processing {len(date_range)} days from {START_DATE} to {END_DATE}")
     print(f"Source: Parquet files (offline, no Xilnex connection needed!)")
+    print(f"Auto-selected max workers: {MAX_WORKERS}")
     print("=" * 80 + "\n")
     
+    day_results = []
+    failures = 0
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         # Submit all days to the thread pool, passing pre-loaded DataFrames
         futures = [
@@ -202,7 +251,14 @@ def main():
         
         # Collect results as they complete
         for future in as_completed(futures):
-            print(future.result())
+            result = future.result()
+            day_results.append(result)
+            if result["status"] == "OK":
+                print(f"[OK] {result['day']} -> {result['sales']} sales, {result['items']} items, "
+                      f"{result['payments']} payments in {result['duration']:.2f}s")
+            else:
+                failures += 1
+                print(f"[FAILED] {result['day']} -> {result.get('error', 'Unknown error')}")
     
     print("\n" + "=" * 80)
     print("All Extract and Load steps completed successfully!")
@@ -212,6 +268,13 @@ def main():
     print(f"   Sales Items: {len(items_df):,}")
     print(f"   Payments: {len(payments_df):,}")
     print(f"   Recipe Costs: {len(recipe_df):,}")
+
+    success_runs = [r for r in day_results if r["status"] == "OK"]
+    if success_runs:
+        avg_duration = sum(r["duration"] for r in success_runs) / len(success_runs)
+        print(f"\nPer-day avg duration: {avg_duration:.2f}s across {len(success_runs)} successful days")
+    if failures:
+        print(f"\n⚠️  {failures} day(s) failed. Check logs above for details.")
     print("=" * 80)
     print("Next Step: Run transform_sales_facts_daily.py to process the staged data.")
     print("=" * 80)

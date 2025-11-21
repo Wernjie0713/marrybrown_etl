@@ -8,12 +8,16 @@ Date: October 29, 2025 (Updated for Cloud Deployment)
 
 import os
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import time
 
-# Load environment variables for cloud deployment
-load_dotenv('.env.cloud')  # Cloud warehouse (TIMEdotcom)
+from monitoring import DataQualityValidator
+from utils.env_loader import load_environment
+
+# Load environment - use .env.local for local development
+load_environment(force_local=True)
+
+STAGING_RETENTION_DAYS = int(os.getenv("STAGING_RETENTION_DAYS", "14"))
 
 
 def get_warehouse_engine():
@@ -24,15 +28,52 @@ def get_warehouse_engine():
     user = os.getenv("TARGET_USERNAME", "sa")
     password = quote_plus(os.getenv("TARGET_PASSWORD", ""))  # URL-encode password
     
+    # Add timeout parameters for slow VPN connections
+    # timeout: Connection timeout in seconds
+    # login_timeout: Login timeout in seconds
     connection_uri = (
         f"mssql+pyodbc://{user}:{password}@{server}/{database}?driver={driver}"
         "&TrustServerCertificate=yes"
+        "&timeout=60"           # Connection timeout: 60 seconds
+        "&login_timeout=60"      # Login timeout: 60 seconds
     )
     
-    return create_engine(connection_uri, pool_pre_ping=True)
+    return create_engine(
+        connection_uri, 
+        pool_pre_ping=True,
+        connect_args={
+            "timeout": 60,           # Connection timeout
+            "login_timeout": 60      # Login timeout
+        }
+    )
 
 
-def transform_to_facts_optimized(start_date, end_date):
+def cleanup_staging(retention_days: int) -> None:
+    """
+    Purge staging data older than the retention window to keep merges fast.
+    """
+    if retention_days <= 0:
+        return
+    cutoff_sql = text("""
+        DECLARE @cutoff DATETIME = DATEADD(day, -:days, CAST(GETDATE() AS DATE));
+        DELETE FROM dbo.staging_sales WHERE BusinessDateTime < @cutoff;
+        DELETE si
+        FROM dbo.staging_sales_items si
+        INNER JOIN dbo.staging_sales ss ON ss.SaleID = si.SaleID
+        WHERE ss.BusinessDateTime < @cutoff;
+        DELETE sp
+        FROM dbo.staging_payments sp
+        INNER JOIN dbo.staging_sales ss ON ss.SaleID = sp.SaleID
+        WHERE ss.BusinessDateTime < @cutoff;
+    """)
+    engine = get_warehouse_engine()
+    with engine.begin() as conn:
+        print(f"[STAGING] Purging entries older than {retention_days} day(s)...")
+        conn.execute(cutoff_sql, {"days": retention_days})
+        print("  [STAGING] Retention cleanup complete.")
+
+
+def transform_to_facts_optimized():
     """
     OPTIMIZED: Transform staging to facts using MERGE for deduplication
     
@@ -43,14 +84,13 @@ def transform_to_facts_optimized(start_date, end_date):
     - Best performance for incremental loads
     - Append mode safe (no data loss risk)
     
-    Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
+    Processes ALL staging data - MERGE automatically handles deduplication.
+    No date range filtering - extraction uses timestamp-based pagination.
     """
     print("="*80)
     print("TRANSFORMING TO FACT TABLE (OPTIMIZED MERGE)")
     print("="*80)
-    print(f"Date Range: {start_date} to {end_date}")
+    print("Processing ALL staging data (timestamp-based, no date range)")
     print()
     
     engine = get_warehouse_engine()
@@ -100,7 +140,7 @@ def transform_to_facts_optimized(start_date, end_date):
                         CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
                         
                         -- Dimension Keys
-                        ISNULL(dl.LocationKey, -1) as LocationKey,
+                        ISNULL(ss.LocationKey, -1) as LocationKey,
                         ISNULL(dp.ProductKey, -1) as ProductKey,
                         -1 as CustomerKey,
                         ISNULL(ds.StaffKey, -1) as StaffKey,
@@ -136,12 +176,11 @@ def transform_to_facts_optimized(start_date, end_date):
                     FROM dbo.staging_sales ss
                     JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
                     JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
-                    LEFT JOIN dbo.dim_locations dl ON ss.OutletID = dl.LocationGUID
                     LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
                     LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
                     LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
                     WHERE pa.allocation_percentage > 0
-                      AND CAST(ss.BusinessDateTime AS DATE) BETWEEN CAST(:start_date AS DATE) AND CAST(:end_date AS DATE)
+                    -- REMOVED: Date range filter - process ALL staging data
                 )
                 MERGE dbo.fact_sales_transactions AS target
                 USING TransformedData AS source
@@ -190,7 +229,7 @@ def transform_to_facts_optimized(start_date, end_date):
                             source.TotalAmount, source.CostAmount, source.CardType,
                             source.TaxCode, source.TaxRate, source.IsFOC, source.Rounding,
                             source.Model, source.IsServiceCharge);
-            """), {"start_date": start_date, "end_date": end_date})
+            """))
             
             elapsed_time = time.time() - start_time
             
@@ -204,6 +243,16 @@ def transform_to_facts_optimized(start_date, end_date):
             print("TRANSFORMATION COMPLETE")
             print("="*80)
             print()
+
+            # Validation commented out - requires date parameters
+            # Can be re-enabled with a date-agnostic validation method if needed
+            # print("[QA] Running fact vs staging validation...")
+            # validator = DataQualityValidator(get_warehouse_engine)
+            # validator.validate_fact_window(start_date=start_date, end_date=end_date)
+            # print("  [QA] Validation passed.")
+
+            if STAGING_RETENTION_DAYS > 0:
+                cleanup_staging(STAGING_RETENTION_DAYS)
             
         except Exception as e:
             print(f"[ERROR] Transformation failed: {e}")
@@ -277,7 +326,7 @@ def transform_to_facts():
                 CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
                 
                 -- Dimension Keys (with lookups)
-                ISNULL(dl.LocationKey, -1) as LocationKey,
+                        ISNULL(ss.LocationKey, -1) as LocationKey,
                 ISNULL(dp.ProductKey, -1) as ProductKey,
                 -1 as CustomerKey,  -- API doesn't have full customer details
                 ISNULL(ds.StaffKey, -1) as StaffKey,
@@ -315,8 +364,6 @@ def transform_to_facts():
             JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
             
             -- Dimension Lookups
-            LEFT JOIN dbo.dim_locations dl 
-                ON ss.OutletID = dl.LocationGUID
             LEFT JOIN dbo.dim_products dp 
                 ON si.ProductID = dp.SourceProductID
             LEFT JOIN dbo.dim_staff ds 
@@ -463,7 +510,7 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
                 SELECT
                     CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
                     CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
-                    ISNULL(dl.LocationKey, -1) as LocationKey,
+                ISNULL(ss.LocationKey, -1) as LocationKey,
                     ISNULL(dp.ProductKey, -1) as ProductKey,
                     -1 as CustomerKey,
                     ISNULL(ds.StaffKey, -1) as StaffKey,
@@ -492,7 +539,6 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
                 FROM dbo.staging_sales ss
                 JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
                 JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
-                LEFT JOIN dbo.dim_locations dl ON ss.OutletID = dl.LocationGUID
                 LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
                 LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
                 LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName

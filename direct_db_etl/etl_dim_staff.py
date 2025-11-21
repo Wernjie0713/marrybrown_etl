@@ -1,8 +1,17 @@
 import os
+import sys
+import time
 import pandas as pd
 from urllib.parse import quote_plus
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+# Handle imports when running from different directories
+try:
+    from direct_db_etl.dimension_utils import DimensionAuditClient, dataframe_hash
+except ImportError:
+    # If running from within direct_db_etl directory, add parent to path
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from direct_db_etl.dimension_utils import DimensionAuditClient, dataframe_hash
 
 def get_db_engine(prefix):
     """Creates a SQLAlchemy engine from .env credentials."""
@@ -34,6 +43,8 @@ def get_staff_type(cashier_name):
 def main():
     """Main ETL function for the staff dimension."""
     print("Starting ETL for dim_staff...")
+    started_at = time.perf_counter()
+    audit_client = DimensionAuditClient(lambda: get_db_engine("TARGET"), "dim_staff")
 
     try:
         # 1. EXTRACT
@@ -41,15 +52,20 @@ def main():
         source_engine = get_db_engine("XILNEX")
         
         # Query for distinct staff from the last 90 days to avoid timeouts
+        # Using GROUP BY instead of DISTINCT for better performance on large tables
         sql_query = """
-        SELECT DISTINCT
+        SELECT
             CASHIER,
             SALES_PERSON,
             SALES_PERSON_USERNAME
         FROM
             COM_5013.APP_4_SALES
         WHERE
-            DATETIME__SALES_DATE >= DATEADD(day, -90, GETDATE());
+            DATETIME__SALES_DATE >= DATEADD(day, -90, GETDATE())
+        GROUP BY
+            CASHIER,
+            SALES_PERSON,
+            SALES_PERSON_USERNAME;
         """
         
         print("Extracting distinct staff members...")
@@ -75,6 +91,12 @@ def main():
         # Select and reorder columns for the final dimension table
         df_final = df[['StaffUsername', 'StaffFullName', 'StaffType']].drop_duplicates(subset=['StaffUsername'])
 
+        current_hash = dataframe_hash(df_final)
+        latest = audit_client.get_latest()
+        if latest and latest.source_hash == current_hash and latest.row_count == len(df_final):
+            print(f"[CDC] No changes detected for dim_staff ({len(df_final)} rows). Skipping load.")
+            return
+
         # 3. LOAD
         print("Connecting to target...")
         target_engine = get_db_engine("TARGET")
@@ -89,7 +111,8 @@ def main():
                 connection, 
                 schema='dbo',
                 if_exists='append', 
-                index=False
+                index=False,
+                chunksize=10000  # Optimized: added chunksize for better performance
             )
             
             print("Inserting 'Unspecified Staff' record...")
@@ -104,11 +127,14 @@ def main():
             connection.execute(text("SET IDENTITY_INSERT [dbo].[dim_staff] OFF;"))
             connection.commit()
 
-        print("✅ ETL for dim_staff completed successfully!")
+        elapsed = time.perf_counter() - started_at
+        audit_client.upsert(source_hash=current_hash, row_count=len(df_final), duration_seconds=elapsed)
+        print(f"[SUCCESS] ETL for dim_staff completed successfully in {elapsed:.2f}s!")
 
     except Exception as e:
-        print(f"❌ An error occurred during the ETL process: {e}")
+        print(f"[ERROR] An error occurred during the ETL process: {e}")
 
 if __name__ == "__main__":
-    load_dotenv('.env.cloud')  # Use cloud database credentials
+    from utils.env_loader import load_environment
+    load_environment(force_local=True)  # Use .env.local for local development
     main()
