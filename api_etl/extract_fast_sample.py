@@ -21,6 +21,9 @@ Date: December 2025
 """
 
 import requests
+from requests.exceptions import ChunkedEncodingError
+from urllib3.exceptions import ProtocolError
+from http.client import IncompleteRead
 import json
 import sys
 import os
@@ -66,10 +69,6 @@ BATCH_ACCUMULATION_SIZE = max(1, int(os.getenv("FAST_SAMPLE_BATCH_SIZE", "10000"
 MAX_BUFFER_SECONDS = int(os.getenv("FAST_SAMPLE_MAX_BUFFER_SECONDS", "300"))  # Time-based flush safety net
 ENABLE_EARLY_EXIT = True  # Stop when date range is exceeded
 BUFFER_DAYS = 7  # Continue 7 days past end_date
-
-# Optional test mode: limit to N batch flushes then run transform + exit
-TEST_TWO_BATCHES_ONLY = os.getenv("FAST_SAMPLE_TEST_TWO_BATCHES_ONLY", "true").lower() == "true"
-TEST_BATCH_LIMIT = max(1, int(os.getenv("FAST_SAMPLE_TEST_BATCH_LIMIT", "2")))
 
 # Global session
 _api_session = None
@@ -126,9 +125,13 @@ def get_warehouse_engine():
         "&login_timeout=60"
     )
     
+    # OPTIMIZED: Use connection pooling instead of NullPool for better performance
+    # Pool allows connection reuse, reducing overhead of creating new connections
     engine = create_engine(
         connection_uri, 
-        poolclass=NullPool,
+        pool_size=5,           # Maintain 5 connections in pool
+        max_overflow=10,       # Allow up to 10 additional connections
+        pool_pre_ping=True,    # Verify connections before using
         echo=False,
         connect_args={
             "timeout": 60,
@@ -142,6 +145,7 @@ def get_warehouse_engine():
 def perform_api_call(session, url: str):
     """
     Execute an API call with retry logic.
+    Handles network errors including incomplete reads and chunked encoding errors.
     Returns (response, latency_seconds, retries_used).
     """
     attempt = 0
@@ -150,11 +154,21 @@ def perform_api_call(session, url: str):
         start_time = time.perf_counter()
         try:
             response = session.get(url, timeout=90)
+            # Read content immediately to catch ChunkedEncodingError/IncompleteRead early
+            # This ensures we detect connection issues before processing the response
+            # The content is cached, so subsequent .json() calls will still work
+            _ = response.content
             latency = time.perf_counter() - start_time
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, ConnectionResetError) as exc:
+        except (requests.exceptions.ConnectionError, 
+                requests.exceptions.Timeout, 
+                ConnectionResetError,
+                ChunkedEncodingError,
+                ProtocolError,
+                IncompleteRead) as exc:
             wait = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
             wait += random.uniform(0.5, 1.5)
-            print(f"  [RETRY {attempt}] Connection error: {exc}, waiting {wait:.1f}s")
+            error_type = type(exc).__name__
+            print(f"  [RETRY {attempt}] Network error ({error_type}): {str(exc)[:100]}, waiting {wait:.1f}s")
             time.sleep(wait)
             continue
 
@@ -180,8 +194,56 @@ def perform_api_call(session, url: str):
     raise RuntimeError(f"API request {url} failed after {API_MAX_RETRIES} attempts")
 
 
+def get_location_keys_batch(outlet_names: set, conn):
+    """
+    OPTIMIZED: Batch lookup LocationKeys for multiple outlets in a single query.
+    Creates missing outlets in batch if needed.
+    Returns dict mapping outlet_name -> LocationKey
+    """
+    if not outlet_names:
+        return {}
+    
+    # Filter out None/empty values
+    valid_outlets = {name for name in outlet_names if name}
+    if not valid_outlets:
+        return {}
+    
+    # Build IN clause with properly escaped values (SQL Server compatible)
+    # Escape single quotes in outlet names to prevent SQL injection
+    outlets_list = [name.replace("'", "''") for name in valid_outlets]
+    outlets_str = "','".join(outlets_list)
+    
+    # Single query to get all existing LocationKeys
+    query = f"""
+        SELECT LocationName, LocationKey FROM dim_locations 
+        WHERE LocationName IN ('{outlets_str}')
+    """
+    result = conn.execute(text(query)).fetchall()
+    
+    # Build mapping for existing outlets
+    outlet_location_mapping = {row[0]: row[1] for row in result}
+    
+    # Find missing outlets
+    missing_outlets = valid_outlets - set(outlet_location_mapping.keys())
+    
+    # Batch insert missing outlets (one at a time, but in same transaction)
+    if missing_outlets:
+        for outlet_name in missing_outlets:
+            new_location_key = conn.execute(text("""
+                INSERT INTO dim_locations (LocationName, City, State)
+                OUTPUT INSERTED.LocationKey
+                VALUES (:outlet_name, 'Unknown', 'Unknown')
+            """), {"outlet_name": outlet_name}).fetchone()[0]
+            outlet_location_mapping[outlet_name] = new_location_key
+    
+    return outlet_location_mapping
+
+
 def get_location_key_from_outlet(outlet_name, conn):
-    """Get LocationKey from dim_locations based on outlet name. Creates new if not found."""
+    """
+    LEGACY: Single outlet lookup (kept for backward compatibility).
+    For new code, use get_location_keys_batch() instead.
+    """
     if not outlet_name:
         return None
     
@@ -210,18 +272,17 @@ def transform_sales_to_dataframes(sales_list: List[Dict], engine) -> tuple:
     if not sales_list:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
-    # Get unique outlets and resolve LocationKeys
+    # Get unique outlets and resolve LocationKeys (OPTIMIZED: batch lookup)
     unique_outlets = set()
     for sale in sales_list:
         outlet = sale.get('outlet')
         if outlet:
             unique_outlets.add(outlet)
     
+    # OPTIMIZED: Single batch query instead of per-outlet queries
     outlet_location_mapping = {}
     with engine.begin() as conn:
-        for outlet_name in unique_outlets:
-            location_key = get_location_key_from_outlet(outlet_name, conn)
-            outlet_location_mapping[outlet_name] = location_key
+        outlet_location_mapping = get_location_keys_batch(unique_outlets, conn)
     
     # Process sales
     sales_data = []
@@ -358,23 +419,15 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
         'salesPerson': 'SalesPerson'
     }
     
-    # Normalization for dimension matching
-    if 'outlet' in df_filtered.columns:
-        df_filtered['outlet'] = df_filtered['outlet'].apply(normalize_text)
-    if 'cashier' in df_filtered.columns:
-        df_filtered['cashier'] = df_filtered['cashier'].apply(normalize_text)
-    if 'salesType' in df_filtered.columns:
-        df_filtered['salesType'] = df_filtered['salesType'].apply(normalize_text)
-    if 'subSalesType' in df_filtered.columns:
-        df_filtered['subSalesType'] = df_filtered['subSalesType'].apply(normalize_text)
-    if 'paymentStatus' in df_filtered.columns:
-        df_filtered['paymentStatus'] = df_filtered['paymentStatus'].apply(normalize_text)
-    if 'status' in df_filtered.columns:
-        df_filtered['status'] = df_filtered['status'].apply(normalize_text)
-    if 'clientName' in df_filtered.columns:
-        df_filtered['clientName'] = df_filtered['clientName'].apply(normalize_text)
-    if 'salesPerson' in df_filtered.columns:
-        df_filtered['salesPerson'] = df_filtered['salesPerson'].apply(normalize_text)
+    # OPTIMIZED: Vectorized normalization for dimension matching (replaces slow .apply())
+    # Vectorized operations are 10-100x faster than row-by-row .apply()
+    text_columns = ['outlet', 'cashier', 'salesType', 'subSalesType', 'paymentStatus', 
+                    'status', 'clientName', 'salesPerson']
+    for col in text_columns:
+        if col in df_filtered.columns:
+            # Vectorized: convert to string, strip, uppercase, replace NaN
+            df_filtered[col] = df_filtered[col].astype(str).str.strip().str.upper()
+            df_filtered[col] = df_filtered[col].replace(['NAN', 'NONE', ''], None)
     
     # Rename columns to match staging table schema
     mapping = {col: column_mapping[col] for col in cols_to_use if col in column_mapping}
@@ -387,7 +440,7 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
     db_columns = list(df_filtered.columns)
 
     
-    # Decimal precision hints (same as extract_from_api_chunked.py)
+    # OPTIMIZED: Vectorized decimal conversion (pre-process columns before row iteration)
     decimal_precision_hints = {
         'GrandTotal': (18, 2),
         'NetAmount': (18, 2),
@@ -396,6 +449,20 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
         'Rounding': (18, 2),
         'BillDiscountAmount': (18, 2)
     }
+    
+    # Vectorized: Convert decimal columns to numeric, round, and format as strings
+    for col_name, (precision, scale) in decimal_precision_hints.items():
+        if col_name in df_filtered.columns:
+            # Convert to numeric (handles strings, ints, floats)
+            df_filtered[col_name] = pd.to_numeric(df_filtered[col_name], errors='coerce')
+            # Round to specified scale
+            if scale >= 0:
+                df_filtered[col_name] = df_filtered[col_name].round(scale)
+            # Format as string with proper precision (NaN becomes None)
+            df_filtered[col_name] = df_filtered[col_name].apply(
+                lambda x: f"{x:.{scale}f}" if pd.notna(x) and scale > 0 
+                else (f"{x:.0f}" if pd.notna(x) and scale == 0 else None)
+            )
     
     # Get raw pyodbc connection
     with engine.begin() as conn:
@@ -407,61 +474,19 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
         placeholders = ", ".join(["?" for _ in db_columns])
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
         
-        # Convert DataFrame to list of tuples with proper type handling
+        # Convert DataFrame to list of tuples (much faster now - decimals already formatted)
         rows = []
-        decimal_quantizers = {
-            col: (Decimal("1").scaleb(-decimal_precision_hints[col][1]) if decimal_precision_hints[col][1] and decimal_precision_hints[col][1] > 0 else Decimal("1"))
-            for col in decimal_precision_hints
-        }
-        
         for row in df_filtered.itertuples(index=False, name=None):
             converted_row = []
             for col_idx, val in enumerate(row):
-                if pd.isna(val):
+                if pd.isna(val) or val is None:
                     converted_row.append(None)
                     continue
                 
                 col_name = db_columns[col_idx]
                 
-                # Handle decimal precision
-                if col_name in decimal_precision_hints:
-                    precision, scale = decimal_precision_hints[col_name]
-                    quantizer = decimal_quantizers.get(col_name, Decimal("1"))
-                    try:
-                        if isinstance(val, Decimal):
-                            dec_value = val
-                        elif isinstance(val, (int, float)):
-                            if isinstance(val, float) and math.isnan(val):
-                                converted_row.append(None)
-                                continue
-                            dec_value = Decimal(str(val))
-                        elif isinstance(val, str):
-                            val = val.strip()
-                            if val == "":
-                                converted_row.append(None)
-                                continue
-                            dec_value = Decimal(val)
-                        else:
-                            dec_value = Decimal(str(val))
-                        
-                        if dec_value.is_nan() or dec_value.is_infinite():
-                            converted_row.append(None)
-                            continue
-                        
-                        if scale is not None and scale >= 0:
-                            dec_value = dec_value.quantize(quantizer)
-                            if scale == 0:
-                                converted_row.append(f"{dec_value:.0f}")
-                            else:
-                                converted_row.append(f"{dec_value:.{scale}f}")
-                        else:
-                            converted_row.append(str(dec_value))
-                        continue
-                    except (InvalidOperation, ValueError, TypeError):
-                        converted_row.append(None)
-                        continue
-                
-                # Handle other types
+                # Decimal columns are already formatted as strings, just pass through
+                # Other types: handle normally
                 converted_row.append(val)
             
             rows.append(tuple(converted_row))
@@ -502,15 +527,12 @@ def write_items_batch(engine, items_df: pd.DataFrame):
     
     df_filtered = items_df[cols_to_use].copy()
     
-    # Normalize text columns
-    if 'salesPerson' in df_filtered.columns:
-        df_filtered['salesPerson'] = df_filtered['salesPerson'].apply(normalize_text)
-    if 'salesType' in df_filtered.columns:
-        df_filtered['salesType'] = df_filtered['salesType'].apply(normalize_text)
-    if 'salesitemSubsalesType' in df_filtered.columns:
-        df_filtered['salesitemSubsalesType'] = df_filtered['salesitemSubsalesType'].apply(normalize_text)
-    if 'category' in df_filtered.columns:
-        df_filtered['category'] = df_filtered['category'].apply(normalize_text)
+    # OPTIMIZED: Vectorized normalization (replaces slow .apply())
+    text_columns = ['salesPerson', 'salesType', 'salesitemSubsalesType', 'category']
+    for col in text_columns:
+        if col in df_filtered.columns:
+            df_filtered[col] = df_filtered[col].astype(str).str.strip().str.upper()
+            df_filtered[col] = df_filtered[col].replace(['NAN', 'NONE', ''], None)
     
     # Derive monetary fields for facts
     # Use fillna(0) to ensure calculations work
@@ -561,7 +583,7 @@ def write_items_batch(engine, items_df: pd.DataFrame):
     
     db_columns = list(df_filtered.columns)
     
-    # Decimal precision hints (same as extract_from_api_chunked.py)
+    # OPTIMIZED: Vectorized decimal conversion (pre-process columns before row iteration)
     decimal_precision_hints = {
         'Quantity': (18, 3),
         'UnitPrice': (18, 2),
@@ -575,6 +597,17 @@ def write_items_batch(engine, items_df: pd.DataFrame):
         'CostAmount': (18, 2)
     }
     
+    # Vectorized: Convert decimal columns to numeric, round, and format as strings
+    for col_name, (precision, scale) in decimal_precision_hints.items():
+        if col_name in df_filtered.columns:
+            df_filtered[col_name] = pd.to_numeric(df_filtered[col_name], errors='coerce')
+            if scale >= 0:
+                df_filtered[col_name] = df_filtered[col_name].round(scale)
+            df_filtered[col_name] = df_filtered[col_name].apply(
+                lambda x: f"{x:.{scale}f}" if pd.notna(x) and scale > 0 
+                else (f"{x:.0f}" if pd.notna(x) and scale == 0 else None)
+            )
+    
     # Get raw pyodbc connection
     with engine.begin() as conn:
         raw_conn = _unwrap_pyodbc_connection(conn)
@@ -585,61 +618,14 @@ def write_items_batch(engine, items_df: pd.DataFrame):
         placeholders = ", ".join(["?" for _ in db_columns])
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
         
-        # Convert DataFrame to list of tuples with proper type handling
+        # Convert DataFrame to list of tuples (much faster now - decimals already formatted)
         rows = []
-        decimal_quantizers = {
-            col: (Decimal("1").scaleb(-decimal_precision_hints[col][1]) if decimal_precision_hints[col][1] and decimal_precision_hints[col][1] > 0 else Decimal("1"))
-            for col in decimal_precision_hints
-        }
-        
         for row in df_filtered.itertuples(index=False, name=None):
             converted_row = []
             for col_idx, val in enumerate(row):
-                if pd.isna(val):
+                if pd.isna(val) or val is None:
                     converted_row.append(None)
                     continue
-                
-                col_name = db_columns[col_idx]
-                
-                # Handle decimal precision
-                if col_name in decimal_precision_hints:
-                    precision, scale = decimal_precision_hints[col_name]
-                    quantizer = decimal_quantizers.get(col_name, Decimal("1"))
-                    try:
-                        if isinstance(val, Decimal):
-                            dec_value = val
-                        elif isinstance(val, (int, float)):
-                            if isinstance(val, float) and math.isnan(val):
-                                converted_row.append(None)
-                                continue
-                            dec_value = Decimal(str(val))
-                        elif isinstance(val, str):
-                            val = val.strip()
-                            if val == "":
-                                converted_row.append(None)
-                                continue
-                            dec_value = Decimal(val)
-                        else:
-                            dec_value = Decimal(str(val))
-                        
-                        if dec_value.is_nan() or dec_value.is_infinite():
-                            converted_row.append(None)
-                            continue
-                        
-                        if scale is not None and scale >= 0:
-                            dec_value = dec_value.quantize(quantizer)
-                            if scale == 0:
-                                converted_row.append(f"{dec_value:.0f}")
-                            else:
-                                converted_row.append(f"{dec_value:.{scale}f}")
-                        else:
-                            converted_row.append(str(dec_value))
-                        continue
-                    except (InvalidOperation, ValueError, TypeError):
-                        converted_row.append(None)
-                        continue
-                
-                # Handle other types
                 converted_row.append(val)
             
             rows.append(tuple(converted_row))
@@ -678,11 +664,13 @@ def write_payments_batch(engine, payments_df: pd.DataFrame):
     
     df_filtered = payments_df[cols_to_use].copy()
     
-    # Normalize payment method and card type for matching
+    # OPTIMIZED: Vectorized normalization (replaces slow .apply())
     if 'method' in df_filtered.columns:
-        df_filtered['method'] = df_filtered['method'].apply(normalize_text)
+        df_filtered['method'] = df_filtered['method'].astype(str).str.strip().str.upper()
+        df_filtered['method'] = df_filtered['method'].replace(['NAN', 'NONE', ''], None)
     if 'cardType' in df_filtered.columns:
-        df_filtered['cardType'] = df_filtered['cardType'].apply(normalize_text)
+        df_filtered['cardType'] = df_filtered['cardType'].astype(str).str.strip().str.upper()
+        df_filtered['cardType'] = df_filtered['cardType'].replace(['NAN', 'NONE', ''], None)
     
     # Map API field names to staging table schema column names (same as extract_from_api_chunked.py)
     column_mapping = {
@@ -705,12 +693,23 @@ def write_payments_batch(engine, payments_df: pd.DataFrame):
     df_filtered = df_filtered.rename(columns=mapping)
     db_columns = list(df_filtered.columns)
     
-    # Decimal precision hints (same as extract_from_api_chunked.py)
+    # OPTIMIZED: Vectorized decimal conversion (pre-process columns before row iteration)
     decimal_precision_hints = {
         'Amount': (18, 2),
         'TenderAmount': (18, 2),
         'ChangeAmount': (18, 2)
     }
+    
+    # Vectorized: Convert decimal columns to numeric, round, and format as strings
+    for col_name, (precision, scale) in decimal_precision_hints.items():
+        if col_name in df_filtered.columns:
+            df_filtered[col_name] = pd.to_numeric(df_filtered[col_name], errors='coerce')
+            if scale >= 0:
+                df_filtered[col_name] = df_filtered[col_name].round(scale)
+            df_filtered[col_name] = df_filtered[col_name].apply(
+                lambda x: f"{x:.{scale}f}" if pd.notna(x) and scale > 0 
+                else (f"{x:.0f}" if pd.notna(x) and scale == 0 else None)
+            )
     
     # Get raw pyodbc connection
     with engine.begin() as conn:
@@ -722,61 +721,14 @@ def write_payments_batch(engine, payments_df: pd.DataFrame):
         placeholders = ", ".join(["?" for _ in db_columns])
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
         
-        # Convert DataFrame to list of tuples with proper type handling
+        # Convert DataFrame to list of tuples (much faster now - decimals already formatted)
         rows = []
-        decimal_quantizers = {
-            col: (Decimal("1").scaleb(-decimal_precision_hints[col][1]) if decimal_precision_hints[col][1] and decimal_precision_hints[col][1] > 0 else Decimal("1"))
-            for col in decimal_precision_hints
-        }
-        
         for row in df_filtered.itertuples(index=False, name=None):
             converted_row = []
             for col_idx, val in enumerate(row):
-                if pd.isna(val):
+                if pd.isna(val) or val is None:
                     converted_row.append(None)
                     continue
-                
-                col_name = db_columns[col_idx]
-                
-                # Handle decimal precision
-                if col_name in decimal_precision_hints:
-                    precision, scale = decimal_precision_hints[col_name]
-                    quantizer = decimal_quantizers.get(col_name, Decimal("1"))
-                    try:
-                        if isinstance(val, Decimal):
-                            dec_value = val
-                        elif isinstance(val, (int, float)):
-                            if isinstance(val, float) and math.isnan(val):
-                                converted_row.append(None)
-                                continue
-                            dec_value = Decimal(str(val))
-                        elif isinstance(val, str):
-                            val = val.strip()
-                            if val == "":
-                                converted_row.append(None)
-                                continue
-                            dec_value = Decimal(val)
-                        else:
-                            dec_value = Decimal(str(val))
-                        
-                        if dec_value.is_nan() or dec_value.is_infinite():
-                            converted_row.append(None)
-                            continue
-                        
-                        if scale is not None and scale >= 0:
-                            dec_value = dec_value.quantize(quantizer)
-                            if scale == 0:
-                                converted_row.append(f"{dec_value:.0f}")
-                            else:
-                                converted_row.append(f"{dec_value:.{scale}f}")
-                        else:
-                            converted_row.append(str(dec_value))
-                        continue
-                    except (InvalidOperation, ValueError, TypeError):
-                        converted_row.append(None)
-                        continue
-                
-                # Handle other types
                 converted_row.append(val)
             
             rows.append(tuple(converted_row))
@@ -856,6 +808,23 @@ def extract_fast_sample(
     Args:
         start_date: Start date in YYYY-MM-DD format (for client-side filtering only)
         end_date: End date in YYYY-MM-DD format (for client-side filtering only)
+        max_calls: Maximum API calls (None uses MAX_API_CALLS from config, default: 2 for testing)
+        resume: If True, resume from lastTimestamp in api_sync_metadata
+        run_transform: If True, run transform_to_facts_optimized for the same
+                       [start_date, end_date] window after extraction completes
+    
+    Returns:
+        dict: Statistics about extraction
+    """
+    # Use config value if max_calls not provided (defaults to 2 for testing)
+    if max_calls is None:
+        max_calls = MAX_API_CALLS
+    """
+    Fast extraction with parallel DB writes and resume capability.
+    
+    Args:
+        start_date: Start date in YYYY-MM-DD format (for client-side filtering only)
+        end_date: End date in YYYY-MM-DD format (for client-side filtering only)
         max_calls: Maximum API calls (None for unlimited)
         resume: If True, resume from lastTimestamp in api_sync_metadata
         run_transform: If True, run transform_to_facts_optimized for the same
@@ -864,6 +833,10 @@ def extract_fast_sample(
     Returns:
         dict: Statistics about extraction
     """
+    # Use config value if max_calls not provided (defaults to 2 for testing)
+    if max_calls is None:
+        max_calls = MAX_API_CALLS
+    
     print()
     print("="*80)
     print(" "*25 + "FAST SAMPLE DATA EXTRACTION")
@@ -952,10 +925,6 @@ def extract_fast_sample(
         print(f"  [PROGRESS] Total: {total_stats['sales']:,} sales, {total_stats['items']:,} items, {total_stats['payments']:,} payments")
         print(f"  [CHECKPOINT] Saved lastTimestamp: {last_timestamp}")
         print()
-
-        if TEST_TWO_BATCHES_ONLY and total_stats["batches_written"] >= TEST_BATCH_LIMIT:
-            print(f"[TEST MODE] Reached batch limit ({TEST_BATCH_LIMIT}); preparing to end extraction early.")
-            return True
     
         return False
     start_time = time.perf_counter()

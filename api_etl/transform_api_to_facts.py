@@ -73,9 +73,9 @@ def cleanup_staging(retention_days: int) -> None:
         print("  [STAGING] Retention cleanup complete.")
 
 
-def transform_to_facts_optimized():
+def transform_to_facts_optimized(chunk_size=10000):
     """
-    OPTIMIZED: Transform staging to facts using MERGE for deduplication
+    OPTIMIZED: Transform staging to facts using chunked MERGE for deduplication
     
     Benefits over DELETE+INSERT approach:
     - No DELETE required (MERGE handles updates atomically)
@@ -83,30 +83,62 @@ def transform_to_facts_optimized():
     - Single atomic transaction (better safety)
     - Best performance for incremental loads
     - Append mode safe (no data loss risk)
+    - Chunked processing prevents memory issues and improves performance
     
-    Processes ALL staging data - MERGE automatically handles deduplication.
+    Processes ALL staging data in chunks - MERGE automatically handles deduplication.
     No date range filtering - extraction uses timestamp-based pagination.
+    
+    Args:
+        chunk_size: Number of staging sales records to process per chunk (default: 10000)
     """
     print("="*80)
-    print("TRANSFORMING TO FACT TABLE (OPTIMIZED MERGE)")
+    print("TRANSFORMING TO FACT TABLE (OPTIMIZED CHUNKED MERGE)")
     print("="*80)
     print("Processing ALL staging data (timestamp-based, no date range)")
+    print(f"Chunk size: {chunk_size:,} sales records per chunk")
     print()
     
     engine = get_warehouse_engine()
     
     start_time = time.time()
     
+    # Get total count of staging sales to determine chunks
     with engine.begin() as conn:
-        try:
-            print("[1/2] Creating transformation CTE with split-tender allocation...")
-            print("[2/2] Executing MERGE (upsert to facts)...")
-            print()
-            
-            # Use MERGE instead of DELETE + INSERT
-            # Composite key: SaleID + ItemID + PaymentMethod for uniqueness
-            merge_result = conn.execute(text("""
-                WITH PaymentAllocations AS (
+        total_count_result = conn.execute(text("""
+            SELECT COUNT(*) FROM dbo.staging_sales
+        """)).fetchone()
+        total_count = total_count_result[0] if total_count_result else 0
+    
+    if total_count == 0:
+        print("  [INFO] No staging data to process.")
+        return
+    
+    total_chunks = (total_count // chunk_size) + (1 if total_count % chunk_size > 0 else 0)
+    print(f"  [INFO] Processing {total_count:,} sales records in {total_chunks} chunk(s)")
+    print()
+    
+    # Process in chunks
+    for chunk_num in range(total_chunks):
+        offset = chunk_num * chunk_size
+        print(f"[Chunk {chunk_num + 1}/{total_chunks}] Processing sales {offset + 1:,} to {min(offset + chunk_size, total_count):,}...")
+        
+        with engine.begin() as conn:
+            try:
+                # Use MERGE instead of DELETE + INSERT
+                # Composite key: SaleID + ItemID + PaymentMethod for uniqueness
+                # Process only this chunk using ROW_NUMBER() for pagination
+                merge_result = conn.execute(text("""
+                WITH ChunkedSales AS (
+                    -- Select only this chunk of sales using ROW_NUMBER()
+                    SELECT ss.*
+                    FROM (
+                        SELECT ss.*, 
+                               ROW_NUMBER() OVER (ORDER BY ss.SaleID) as rn
+                        FROM dbo.staging_sales ss
+                    ) ss
+                    WHERE ss.rn > :offset AND ss.rn <= :offset_plus_chunk
+                ),
+                PaymentAllocations AS (
                     -- Calculate allocation percentage for each payment method per sale
                     SELECT
                         sp.SaleID,
@@ -123,6 +155,7 @@ def transform_to_facts_optimized():
                             ELSE 0
                         END as allocation_percentage
                     FROM dbo.staging_payments sp
+                    INNER JOIN ChunkedSales cs ON sp.SaleID = cs.SaleID
                     WHERE NOT EXISTS (
                         SELECT 1 FROM dbo.staging_payments sp2
                         WHERE sp2.SaleID = sp.SaleID AND sp2.IsVoid = 1
@@ -131,13 +164,13 @@ def transform_to_facts_optimized():
                 TransformedData AS (
                     SELECT
                         -- Composite key for deduplication
-                        CAST(ss.SaleID AS VARCHAR(50)) + '-' + 
+                        CAST(cs.SaleID AS VARCHAR(50)) + '-' + 
                         CAST(si.ItemID AS VARCHAR(50)) + '-' + 
                         ISNULL(pa.PaymentMethod, 'NONE') AS CompositeKey,
                         
                         -- Date and Time Keys
-                        CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
-                        CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
+                        CAST(FORMAT(CAST(cs.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
+                        CAST(REPLACE(CAST(CAST(cs.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
                         
                         -- Dimension Keys
                         ISNULL(dl.LocationKey, -1) as LocationKey,
@@ -149,11 +182,11 @@ def transform_to_facts_optimized():
                         ISNULL(dt.TerminalKey, -1) as TerminalKey,
                         
                         -- Transaction Details
-                        CAST(ss.SaleID AS VARCHAR(45)) as SaleNumber,
-                        ss.SalesType as SaleType,
-                        ss.SubSalesType as SubSalesType,
-                        ss.Status as SalesStatus,
-                        ss.OrderSource as OrderSource,
+                        CAST(cs.SaleID AS VARCHAR(45)) as SaleNumber,
+                        cs.SalesType as SaleType,
+                        cs.SubSalesType as SubSalesType,
+                        cs.Status as SalesStatus,
+                        cs.OrderSource as OrderSource,
                         
                         -- Measures (allocated by payment method)
                         si.Quantity,
@@ -169,24 +202,23 @@ def transform_to_facts_optimized():
                         si.TaxCode,
                         si.TaxRate,
                         si.IsFOC,
-                        ss.Rounding * pa.allocation_percentage as Rounding,
+                        cs.Rounding * pa.allocation_percentage as Rounding,
                         si.Model,
                         si.IsServiceCharge
                         
-                    FROM dbo.staging_sales ss
-                    JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
-                    JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
+                    FROM ChunkedSales cs
+                    JOIN dbo.staging_sales_items si ON cs.SaleID = si.SaleID
+                    JOIN PaymentAllocations pa ON cs.SaleID = pa.SaleID
                     
                     -- Dimension Joins
                     LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
-                    LEFT JOIN dbo.dim_locations dl ON ss.OutletName = dl.LocationName
-                    LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
-                    LEFT JOIN dbo.dim_customers dc ON ss.CustomerID = dc.CustomerGUID
-                    LEFT JOIN dbo.dim_terminals dt ON ss.TerminalCode = dt.TerminalID
+                    LEFT JOIN dbo.dim_locations dl ON cs.OutletName = dl.LocationName
+                    LEFT JOIN dbo.dim_staff ds ON cs.CashierName = ds.StaffFullName
+                    LEFT JOIN dbo.dim_customers dc ON cs.CustomerID = dc.CustomerGUID
+                    LEFT JOIN dbo.dim_terminals dt ON cs.TerminalCode = dt.TerminalID
                     LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
                     
                     WHERE pa.allocation_percentage > 0
-                    -- REMOVED: Date range filter - process ALL staging data
                 )
                 MERGE dbo.fact_sales_transactions AS target
                 USING TransformedData AS source
@@ -235,36 +267,40 @@ def transform_to_facts_optimized():
                             source.TotalAmount, source.CostAmount, source.CardType,
                             source.TaxCode, source.TaxRate, source.IsFOC, source.Rounding,
                             source.Model, source.IsServiceCharge);
-            """))
-            
-            elapsed_time = time.time() - start_time
-            
-            print(f"  [OK] MERGE complete!")
-            print(f"  Rows affected: {merge_result.rowcount if merge_result.rowcount is not None else 'N/A'}")
-            print(f"  (includes both inserts and updates)")
-            print(f"  Time: {elapsed_time:.2f} seconds")
-            print()
-            
-            print("="*80)
-            print("TRANSFORMATION COMPLETE")
-            print("="*80)
-            print()
+                """), {
+                    "offset": offset,
+                    "offset_plus_chunk": offset + chunk_size
+                })
+                
+                chunk_time = time.time() - start_time
+                rows_affected = merge_result.rowcount if merge_result.rowcount is not None else 0
+                print(f"  ✓ Chunk complete: {rows_affected:,} rows affected ({chunk_time:.1f}s)")
+                
+            except Exception as e:
+                print(f"  [ERROR] Chunk {chunk_num + 1} failed: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+    
+    elapsed_time = time.time() - start_time
+    
+    print()
+    print("="*80)
+    print("TRANSFORMATION COMPLETE")
+    print("="*80)
+    print(f"  Total time: {elapsed_time:.2f} seconds")
+    print(f"  Average per chunk: {elapsed_time/total_chunks:.2f} seconds" if total_chunks > 0 else "")
+    print()
 
-            # Validation commented out - requires date parameters
-            # Can be re-enabled with a date-agnostic validation method if needed
-            # print("[QA] Running fact vs staging validation...")
-            # validator = DataQualityValidator(get_warehouse_engine)
-            # validator.validate_fact_window(start_date=start_date, end_date=end_date)
-            # print("  [QA] Validation passed.")
+    # Validation commented out - requires date parameters
+    # Can be re-enabled with a date-agnostic validation method if needed
+    # print("[QA] Running fact vs staging validation...")
+    # validator = DataQualityValidator(get_warehouse_engine)
+    # validator.validate_fact_window(start_date=start_date, end_date=end_date)
+    # print("  [QA] Validation passed.")
 
-            if STAGING_RETENTION_DAYS > 0:
-                cleanup_staging(STAGING_RETENTION_DAYS)
-            
-        except Exception as e:
-            print(f"[ERROR] Transformation failed: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+    if STAGING_RETENTION_DAYS > 0:
+        cleanup_staging(STAGING_RETENTION_DAYS)
 
 
 def transform_to_facts():

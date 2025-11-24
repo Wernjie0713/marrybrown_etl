@@ -14,6 +14,9 @@ Date: November 7, 2025
 """
 
 import requests
+from requests.exceptions import ChunkedEncodingError
+from urllib3.exceptions import ProtocolError
+from http.client import IncompleteRead
 import json
 import sys
 import os
@@ -1214,6 +1217,7 @@ def load_chunk_to_staging_upsert(sales_chunk, chunk_number, start_date, end_date
 def perform_api_call(session, url: str, metrics: MetricsEmitter):
     """
     Execute an API call with rate-limit awareness and exponential backoff.
+    Handles network errors including incomplete reads and chunked encoding errors.
     Returns (response, latency_seconds, retries_used).
     """
     attempt = 0
@@ -1222,11 +1226,21 @@ def perform_api_call(session, url: str, metrics: MetricsEmitter):
         start_time = time.perf_counter()
         try:
             response = session.get(url, timeout=90)
+            # Read content immediately to catch ChunkedEncodingError/IncompleteRead early
+            # This ensures we detect connection issues before processing the response
+            # The content is cached, so subsequent .json() calls will still work
+            _ = response.content
             latency = time.perf_counter() - start_time
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, ConnectionResetError) as exc:
+        except (requests.exceptions.ConnectionError, 
+                requests.exceptions.Timeout, 
+                ConnectionResetError,
+                ChunkedEncodingError,
+                ProtocolError,
+                IncompleteRead) as exc:
             wait = API_RETRY_BASE_DELAY * (2 ** (attempt - 1))
             wait += random.uniform(0.5, 1.5)
-            metrics.emit_retry_event(attempt=attempt, wait_seconds=wait, reason=str(exc))
+            error_type = type(exc).__name__
+            metrics.emit_retry_event(attempt=attempt, wait_seconds=wait, reason=f"{error_type}: {str(exc)[:100]}")
             time.sleep(wait)
             continue
 
