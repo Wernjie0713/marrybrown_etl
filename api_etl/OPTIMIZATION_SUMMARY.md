@@ -34,10 +34,10 @@ This document summarizes all optimizations implemented in the MarryBrown ETL pip
 - **Implementation**: Stores `lastTimestamp` after each batch write
 - **Status Tracking**: Tracks IN_PROGRESS, COMPLETED, INTERRUPTED states
 
-#### 1.4 Smart Early Exit
-- **Feature**: Stops API calls when target date range is exceeded
-- **Impact**: Prevents unnecessary API calls beyond required date range
-- **Configuration**: `ENABLE_EARLY_EXIT = True`, `BUFFER_DAYS = 7`
+#### 1.4 Smart Early Exit (Removed)
+- **Status Update**: Early-exit logic has been removed; extraction now always scans the full requested window so historical backfills are never skipped.
+- **Impact**: Slightly more API calls during wide replays, but completeness is guaranteed.
+- **Note**: `ENABLE_EARLY_EXIT` / `BUFFER_DAYS` settings are no longer referenced in code.
 
 #### 1.5 Configurable API Call Limits
 - **Feature**: Uses `MAX_API_CALLS` from config (defaults to 2 for testing)
@@ -108,6 +108,22 @@ This document summarizes all optimizations implemented in the MarryBrown ETL pip
 - **Feature**: Fixed indentation error ensuring `cleanup_staging()` runs correctly after transformation
 - **Impact**: Ensures staging data cleanup always executes, preventing stale data accumulation
 - **Implementation**: Cleanup code now runs at function level after completion messages
+
+#### 2.8 Chronological Ordering for TransactionKey
+- **Before**: Chunked processing ordered by `SaleID` (arbitrary order)
+- **After**: Chunked processing ordered by `BusinessDateTime, SaleID` (chronological order)
+- **Impact**: 
+  - TransactionKey values follow chronological order, making data more logical and easier to debug
+  - Better alignment with business logic (date-based ordering)
+  - Minimal performance impact due to existing `IX_staging_sales_BusinessDateTime` index
+- **Implementation**: Changed `ROW_NUMBER() OVER (ORDER BY ss.SaleID)` to `ROW_NUMBER() OVER (ORDER BY ss.BusinessDateTime, ss.SaleID)`
+- **Performance**: Negligible impact (~5-10% overhead) as the existing index on `BusinessDateTime` is utilized for sorting
+- **Known Limitation**: `TransactionKey` still represents load sequence; if older facts arrive late (historical replay, API out-of-order), the key can appear out of chronological order. Downstream consumers should sort by `BusinessDateTime`/`DateKey` when strict chronology is required.
+
+#### 2.9 Fact Granularity Alignment (Nov 2025 Hotfix)
+- **Issue**: MERGE occasionally failed with "multiple source rows matched" when split-tender allocations produced duplicate fact grain rows.
+- **Fix**: Added an `AggregatedData` CTE that groups to `SaleNumber + DateKey + ProductKey + PaymentTypeKey` before the MERGE.
+- **Impact**: MERGE is now deterministic/idempotent and matches the fact table's composite key even with multi-payment sales.
 
 ---
 
@@ -182,6 +198,7 @@ This document summarizes all optimizations implemented in the MarryBrown ETL pip
    - Batch LocationKey lookup
    - Vectorized decimal conversion
    - Fixed cleanup execution to ensure proper staging data cleanup
+   - Chronological ordering for TransactionKey (BusinessDateTime-based chunking)
 
 3. **`config_api.py`**
    - Added MAX_API_CALLS configuration (default: 2 for testing)

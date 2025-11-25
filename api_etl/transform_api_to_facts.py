@@ -7,45 +7,26 @@ Date: October 29, 2025 (Updated for Cloud Deployment)
 """
 
 import os
+import sys
 from urllib.parse import quote_plus
 from sqlalchemy import create_engine, text
 import time
+import traceback
 
-from monitoring import DataQualityValidator
+# Ensure project root on sys.path so `monitoring` and other packages can be imported
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+# Removed: from monitoring import DataQualityValidator
 from utils.env_loader import load_environment
+from utils.db_connection import get_warehouse_engine
 
 # Load environment - use .env.local for local development
 load_environment(force_local=True)
 
 STAGING_RETENTION_DAYS = int(os.getenv("STAGING_RETENTION_DAYS", "14"))
-
-
-def get_warehouse_engine():
-    """Get SQLAlchemy engine for warehouse"""
-    driver = os.getenv("TARGET_DRIVER", "ODBC Driver 18 for SQL Server").replace(" ", "+")
-    server = os.getenv("TARGET_SERVER", "localhost")
-    database = os.getenv("TARGET_DATABASE", "MarryBrown_DW")
-    user = os.getenv("TARGET_USERNAME", "sa")
-    password = quote_plus(os.getenv("TARGET_PASSWORD", ""))  # URL-encode password
-    
-    # Add timeout parameters for slow VPN connections
-    # timeout: Connection timeout in seconds
-    # login_timeout: Login timeout in seconds
-    connection_uri = (
-        f"mssql+pyodbc://{user}:{password}@{server}/{database}?driver={driver}"
-        "&TrustServerCertificate=yes"
-        "&timeout=60"           # Connection timeout: 60 seconds
-        "&login_timeout=60"      # Login timeout: 60 seconds
-    )
-    
-    return create_engine(
-        connection_uri, 
-        pool_pre_ping=True,
-        connect_args={
-            "timeout": 60,           # Connection timeout
-            "login_timeout": 60      # Login timeout
-        }
-    )
 
 
 def cleanup_staging(retention_days: int) -> None:
@@ -54,6 +35,7 @@ def cleanup_staging(retention_days: int) -> None:
     """
     if retention_days <= 0:
         return
+        
     cutoff_sql = text("""
         DECLARE @cutoff DATETIME = DATEADD(day, -:days, CAST(GETDATE() AS DATE));
         DELETE FROM dbo.staging_sales WHERE BusinessDateTime < @cutoff;
@@ -66,14 +48,20 @@ def cleanup_staging(retention_days: int) -> None:
         INNER JOIN dbo.staging_sales ss ON ss.SaleID = sp.SaleID
         WHERE ss.BusinessDateTime < @cutoff;
     """)
-    engine = get_warehouse_engine()
-    with engine.begin() as conn:
-        print(f"[STAGING] Purging entries older than {retention_days} day(s)...")
-        conn.execute(cutoff_sql, {"days": retention_days})
-        print("  [STAGING] Retention cleanup complete.")
+    
+    try:
+        engine = get_warehouse_engine()
+        with engine.begin() as conn:
+            print(f"[STAGING] Purging entries older than {retention_days} day(s)...")
+            conn.execute(cutoff_sql, {"days": retention_days})
+            print("  [STAGING] Retention cleanup complete.")
+    except Exception as e:
+        print(f"[WARNING] Staging cleanup failed: {e}")
+        traceback.print_exc()
+        # Don't fail the entire ETL process for cleanup failure
 
 
-def transform_to_facts_optimized(chunk_size=10000):
+def transform_to_facts_optimized(chunk_size=10000) -> None:
     """
     OPTIMIZED: Transform staging to facts using chunked MERGE for deduplication
     
@@ -122,18 +110,21 @@ def transform_to_facts_optimized(chunk_size=10000):
         offset = chunk_num * chunk_size
         print(f"[Chunk {chunk_num + 1}/{total_chunks}] Processing sales {offset + 1:,} to {min(offset + chunk_size, total_count):,}...")
         
+        chunk_start_time = time.time()  # CORRECT: Track time per chunk
+        
         with engine.begin() as conn:
             try:
                 # Use MERGE instead of DELETE + INSERT
-                # Composite key: SaleID + ItemID + PaymentMethod for uniqueness
+                # Aggregate to SaleID + Product + Payment type granularity to match fact uniqueness
                 # Process only this chunk using ROW_NUMBER() for pagination
                 merge_result = conn.execute(text("""
                 WITH ChunkedSales AS (
                     -- Select only this chunk of sales using ROW_NUMBER()
+                    -- Ordered by BusinessDateTime to ensure TransactionKey follows chronological order
                     SELECT ss.*
                     FROM (
                         SELECT ss.*, 
-                               ROW_NUMBER() OVER (ORDER BY ss.SaleID) as rn
+                               ROW_NUMBER() OVER (ORDER BY ss.BusinessDateTime, ss.SaleID) as rn
                         FROM dbo.staging_sales ss
                     ) ss
                     WHERE ss.rn > :offset AND ss.rn <= :offset_plus_chunk
@@ -163,11 +154,8 @@ def transform_to_facts_optimized(chunk_size=10000):
                 ),
                 TransformedData AS (
                     SELECT
-                        -- Composite key for deduplication
-                        CAST(cs.SaleID AS VARCHAR(50)) + '-' + 
-                        CAST(si.ItemID AS VARCHAR(50)) + '-' + 
-                        ISNULL(pa.PaymentMethod, 'NONE') AS CompositeKey,
-                        
+                        CAST(cs.SaleID AS VARCHAR(45)) as SaleNumber,
+
                         -- Date and Time Keys
                         CAST(FORMAT(CAST(cs.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
                         CAST(REPLACE(CAST(CAST(cs.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
@@ -182,7 +170,6 @@ def transform_to_facts_optimized(chunk_size=10000):
                         ISNULL(dt.TerminalKey, -1) as TerminalKey,
                         
                         -- Transaction Details
-                        CAST(cs.SaleID AS VARCHAR(45)) as SaleNumber,
                         cs.SalesType as SaleType,
                         cs.SubSalesType as SubSalesType,
                         cs.Status as SalesStatus,
@@ -219,10 +206,50 @@ def transform_to_facts_optimized(chunk_size=10000):
                     LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
                     
                     WHERE pa.allocation_percentage > 0
+                ),
+                AggregatedData AS (
+                    SELECT
+                        SaleNumber,
+                        DateKey,
+                        MIN(TimeKey) as TimeKey,
+                        MIN(LocationKey) as LocationKey,
+                        ProductKey,
+                        MIN(CustomerKey) as CustomerKey,
+                        MIN(StaffKey) as StaffKey,
+                        MIN(PromotionKey) as PromotionKey,
+                        PaymentTypeKey,
+                        MIN(TerminalKey) as TerminalKey,
+                        -- Transaction Details
+                        MIN(SaleType) as SaleType,
+                        MIN(SubSalesType) as SubSalesType,
+                        MIN(SalesStatus) as SalesStatus,
+                        MIN(OrderSource) as OrderSource,
+                        -- Measures
+                        SUM(Quantity) as Quantity,
+                        SUM(GrossAmount) as GrossAmount,
+                        SUM(DiscountAmount) as DiscountAmount,
+                        SUM(NetAmount) as NetAmount,
+                        SUM(TaxAmount) as TaxAmount,
+                        SUM(TotalAmount) as TotalAmount,
+                        SUM(CostAmount) as CostAmount,
+                        -- API-specific fields
+                        MAX(CardType) as CardType,
+                        MAX(TaxCode) as TaxCode,
+                        MAX(TaxRate) as TaxRate,
+                        CAST(MAX(CAST(IsFOC AS INT)) AS BIT) as IsFOC,
+                        SUM(Rounding) as Rounding,
+                        MAX(Model) as Model,
+                        CAST(MAX(CAST(IsServiceCharge AS INT)) AS BIT) as IsServiceCharge
+                    FROM TransformedData
+                    GROUP BY
+                        SaleNumber,
+                        DateKey,
+                        ProductKey,
+                        PaymentTypeKey
                 )
                 MERGE dbo.fact_sales_transactions AS target
-                USING TransformedData AS source
-                ON target.SaleNumber = SUBSTRING(source.CompositeKey, 1, CHARINDEX('-', source.CompositeKey) - 1)
+                USING AggregatedData AS source
+                ON target.SaleNumber = source.SaleNumber
                    AND target.DateKey = source.DateKey
                    AND target.ProductKey = source.ProductKey
                    AND target.PaymentTypeKey = source.PaymentTypeKey
@@ -272,13 +299,12 @@ def transform_to_facts_optimized(chunk_size=10000):
                     "offset_plus_chunk": offset + chunk_size
                 })
                 
-                chunk_time = time.time() - start_time
+                chunk_time = time.time() - chunk_start_time  # CORRECT: Calculate against chunk_start_time
                 rows_affected = merge_result.rowcount if merge_result.rowcount is not None else 0
                 print(f"  ✓ Chunk complete: {rows_affected:,} rows affected ({chunk_time:.1f}s)")
                 
             except Exception as e:
                 print(f"  [ERROR] Chunk {chunk_num + 1} failed: {e}")
-                import traceback
                 traceback.print_exc()
                 raise
     
@@ -291,13 +317,6 @@ def transform_to_facts_optimized(chunk_size=10000):
     print(f"  Total time: {elapsed_time:.2f} seconds")
     print(f"  Average per chunk: {elapsed_time/total_chunks:.2f} seconds" if total_chunks > 0 else "")
     print()
-
-    # Validation commented out - requires date parameters
-    # Can be re-enabled with a date-agnostic validation method if needed
-    # print("[QA] Running fact vs staging validation...")
-    # validator = DataQualityValidator(get_warehouse_engine)
-    # validator.validate_fact_window(start_date=start_date, end_date=end_date)
-    # print("  [QA] Validation passed.")
 
     if STAGING_RETENTION_DAYS > 0:
         cleanup_staging(STAGING_RETENTION_DAYS)
@@ -319,14 +338,8 @@ def transform_to_facts():
     engine = get_warehouse_engine()
     
     with engine.begin() as conn:  # Use begin() for automatic transaction management
-        # Step 1: Full rebuild mode (truncate) - legacy path
-        print("Step 1: Clearing existing fact_sales_transactions...")
-        conn.execute(text("TRUNCATE TABLE dbo.fact_sales_transactions"))
-        print("  [OK] Table cleared")
-        print()
-        
-        # Step 2: Transform and load with split-tender allocation
-        print("Step 2: Transforming and loading data...")
+        # Step 1: Transform and load with split-tender allocation
+        print("Step 1: Transforming and loading data (no truncate)...")
         print("  - Applying split-tender allocation logic...")
         print("  - Populating new API-specific fields...")
         
@@ -368,7 +381,7 @@ def transform_to_facts():
                 CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
                 
                 -- Dimension Keys (with lookups)
-                        ISNULL(ss.LocationKey, -1) as LocationKey,
+                ISNULL(dl.LocationKey, -1) as LocationKey,
                 ISNULL(dp.ProductKey, -1) as ProductKey,
                 -1 as CustomerKey,  -- API doesn't have full customer details
                 ISNULL(ds.StaffKey, -1) as StaffKey,
@@ -390,7 +403,7 @@ def transform_to_facts():
                 si.NetAmount * pa.allocation_percentage as NetAmount,
                 si.TaxAmount * pa.allocation_percentage as TaxAmount,
                 si.TotalAmount * pa.allocation_percentage as TotalAmount,
-                si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
+                si.CostAmount * pa.allocation_percentage as CostAmount,  -- CORRECTED: Use CostAmount column
                 pa.CardType,
                 
                 -- NEW API-SPECIFIC FIELDS
@@ -408,6 +421,8 @@ def transform_to_facts():
             -- Dimension Lookups
             LEFT JOIN dbo.dim_products dp 
                 ON si.ProductID = dp.SourceProductID
+            LEFT JOIN dbo.dim_locations dl
+                ON ss.OutletName = dl.LocationName
             LEFT JOIN dbo.dim_staff ds 
                 ON ss.CashierName = ds.StaffFullName
             LEFT JOIN dbo.dim_payment_types dpt 
@@ -425,8 +440,8 @@ def transform_to_facts():
         print(f"  [OK] Inserted {rows_inserted:,} rows in {elapsed_time:.2f} seconds")
         print()
         
-        # Step 3: Validation queries
-        print("Step 3: Validating transformed data...")
+        # Step 2: Validation queries
+        print("Step 2: Validating transformed data...")
         
         # Count check
         count_query = text("""
@@ -552,7 +567,7 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
                 SELECT
                     CAST(FORMAT(CAST(ss.BusinessDateTime AS DATE), 'yyyyMMdd') AS INT) as DateKey,
                     CAST(REPLACE(CAST(CAST(ss.SystemDateTime AS TIME) AS VARCHAR(8)), ':', '') AS INT) as TimeKey,
-                ISNULL(ss.LocationKey, -1) as LocationKey,
+                    ISNULL(dl.LocationKey, -1) as LocationKey,
                     ISNULL(dp.ProductKey, -1) as ProductKey,
                     -1 as CustomerKey,
                     ISNULL(ds.StaffKey, -1) as StaffKey,
@@ -570,7 +585,7 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
                     si.NetAmount * pa.allocation_percentage as NetAmount,
                     si.TaxAmount * pa.allocation_percentage as TaxAmount,
                     si.TotalAmount * pa.allocation_percentage as TotalAmount,
-                    si.Cost * si.Quantity * pa.allocation_percentage as CostAmount,
+                    si.CostAmount * pa.allocation_percentage as CostAmount, -- CORRECTED: Use CostAmount
                     pa.CardType,
                     si.TaxCode,
                     si.TaxRate,
@@ -582,6 +597,7 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
                 JOIN dbo.staging_sales_items si ON ss.SaleID = si.SaleID
                 JOIN PaymentAllocations pa ON ss.SaleID = pa.SaleID
                 LEFT JOIN dbo.dim_products dp ON si.ProductID = dp.SourceProductID
+                LEFT JOIN dbo.dim_locations dl ON ss.OutletName = dl.LocationName
                 LEFT JOIN dbo.dim_staff ds ON ss.CashierName = ds.StaffFullName
                 LEFT JOIN dbo.dim_payment_types dpt ON pa.PaymentMethod = dpt.PaymentMethodName
                 WHERE pa.allocation_percentage > 0
@@ -595,7 +611,6 @@ def transform_to_facts_for_period(start_date: str, end_date: str):
 
         except Exception as e:
             print(f"[ERROR] Window transformation failed: {e}")
-            import traceback
             traceback.print_exc()
             raise  # Will trigger automatic rollback
 
@@ -608,7 +623,7 @@ def main():
     print("╚════════════════════════════════════════════════════════════════╝")
     print()
     
-    transform_to_facts()
+    transform_to_facts_optimized()
     
     print()
     print("╔════════════════════════════════════════════════════════════════╗")
@@ -619,4 +634,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

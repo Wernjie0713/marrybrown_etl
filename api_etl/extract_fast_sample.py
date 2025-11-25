@@ -14,7 +14,7 @@ CORRECT API USAGE:
 - Use starttimestamp parameter for pagination (hex value from lastTimestamp)
 - First call: /apps/v2/sync/sales?limit=1000 (no starttimestamp)
 - Subsequent calls: /apps/v2/sync/sales?limit=1000&starttimestamp=<lastTimestamp>
-- Date filtering happens client-side (for early exit logic only)
+- This script processes all returned data sequentially and only reports the last record date
 
 Author: YONG WERN JIE
 Date: December 2025
@@ -30,16 +30,14 @@ import os
 import time
 from typing import Optional, List, Dict
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import create_engine, text
-from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
 import random
 import pyodbc
-from decimal import Decimal, InvalidOperation
-import math
+import traceback
 
 # Ensure project root is on sys.path when running as a script
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -57,6 +55,7 @@ from config_api import (
 )
 from metadata_store import ApiSyncMetadataStore
 from api_etl.transform_api_to_facts import transform_to_facts_optimized
+from utils.db_connection import get_warehouse_engine
 
 # Load environment variables
 ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.cloud')
@@ -67,8 +66,6 @@ API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", "5"))
 API_RETRY_BASE_DELAY = float(os.getenv("API_RETRY_BASE_DELAY", "2"))
 BATCH_ACCUMULATION_SIZE = max(1, int(os.getenv("FAST_SAMPLE_BATCH_SIZE", "10000")))
 MAX_BUFFER_SECONDS = int(os.getenv("FAST_SAMPLE_MAX_BUFFER_SECONDS", "300"))  # Time-based flush safety net
-ENABLE_EARLY_EXIT = True  # Stop when date range is exceeded
-BUFFER_DAYS = 7  # Continue 7 days past end_date
 
 # Global session
 _api_session = None
@@ -108,38 +105,6 @@ def get_api_session():
         })
         _api_session = session
     return _api_session
-
-
-def get_warehouse_engine():
-    """Get SQLAlchemy engine for warehouse"""
-    driver = os.getenv("TARGET_DRIVER", "ODBC Driver 17 for SQL Server").replace(" ", "+")
-    server = os.getenv("TARGET_SERVER", "localhost")
-    database = os.getenv("TARGET_DATABASE", "MarryBrown_DW")
-    user = os.getenv("TARGET_USERNAME", "sa")
-    password = quote_plus(os.getenv("TARGET_PASSWORD", ""))
-    
-    connection_uri = (
-        f"mssql+pyodbc://{user}:{password}@{server}/{database}?driver={driver}"
-        "&TrustServerCertificate=yes"
-        "&timeout=60"
-        "&login_timeout=60"
-    )
-    
-    # OPTIMIZED: Use connection pooling instead of NullPool for better performance
-    # Pool allows connection reuse, reducing overhead of creating new connections
-    engine = create_engine(
-        connection_uri, 
-        pool_size=5,           # Maintain 5 connections in pool
-        max_overflow=10,       # Allow up to 10 additional connections
-        pool_pre_ping=True,    # Verify connections before using
-        echo=False,
-        connect_args={
-            "timeout": 60,
-            "login_timeout": 60
-        }
-    )
-    
-    return engine
 
 
 def perform_api_call(session, url: str):
@@ -194,7 +159,7 @@ def perform_api_call(session, url: str):
     raise RuntimeError(f"API request {url} failed after {API_MAX_RETRIES} attempts")
 
 
-def get_location_keys_batch(outlet_names: set, conn):
+def get_location_keys_batch(outlet_names: set, conn) -> Dict[str, int]:
     """
     OPTIMIZED: Batch lookup LocationKeys for multiple outlets in a single query.
     Creates missing outlets in batch if needed.
@@ -208,17 +173,23 @@ def get_location_keys_batch(outlet_names: set, conn):
     if not valid_outlets:
         return {}
     
-    # Build IN clause with properly escaped values (SQL Server compatible)
-    # Escape single quotes in outlet names to prevent SQL injection
-    outlets_list = [name.replace("'", "''") for name in valid_outlets]
-    outlets_str = "','".join(outlets_list)
+    # Build parameter dictionary and placeholders for IN clause
+    # This avoids SQL injection by using bound parameters
+    params = {}
+    placeholders = []
+    for i, name in enumerate(valid_outlets):
+        param_name = f"outlet_{i}"
+        params[param_name] = name
+        placeholders.append(f":{param_name}")
+    
+    placeholders_str = ", ".join(placeholders)
     
     # Single query to get all existing LocationKeys
-    query = f"""
+    query = text(f"""
         SELECT LocationName, LocationKey FROM dim_locations 
-        WHERE LocationName IN ('{outlets_str}')
-    """
-    result = conn.execute(text(query)).fetchall()
+        WHERE LocationName IN ({placeholders_str})
+    """)
+    result = conn.execute(query, params).fetchall()
     
     # Build mapping for existing outlets
     outlet_location_mapping = {row[0]: row[1] for row in result}
@@ -341,7 +312,7 @@ def normalize_text(text_val):
     return val if val else None
 
 
-def write_sales_batch(engine, sales_df: pd.DataFrame):
+def write_sales_batch(engine, sales_df: pd.DataFrame) -> int:
     """Write sales dataframe to staging_sales using executemany (same approach as extract_from_api_chunked.py)."""
     if sales_df.empty:
         return 0
@@ -504,7 +475,7 @@ def write_sales_batch(engine, sales_df: pd.DataFrame):
     return len(df_filtered)
 
 
-def write_items_batch(engine, items_df: pd.DataFrame):
+def write_items_batch(engine, items_df: pd.DataFrame) -> int:
     """Write items dataframe to staging_sales_items using executemany (same approach as extract_from_api_chunked.py)."""
     if items_df.empty:
         return 0
@@ -643,7 +614,7 @@ def write_items_batch(engine, items_df: pd.DataFrame):
     return len(df_filtered)
 
 
-def write_payments_batch(engine, payments_df: pd.DataFrame):
+def write_payments_batch(engine, payments_df: pd.DataFrame) -> int:
     """Write payments dataframe to staging_payments using executemany (same approach as extract_from_api_chunked.py)."""
     if payments_df.empty:
         return 0
@@ -768,6 +739,7 @@ def write_parallel(engine, sales_df: pd.DataFrame, items_df: pd.DataFrame, payme
                 results[table_name] = count
             except Exception as e:
                 print(f"  [ERROR] Failed to write {table_name}: {e}")
+                traceback.print_exc()
                 results[table_name] = 0
     
     duration = time.perf_counter() - start_time
@@ -796,8 +768,6 @@ def parse_sale_datetime(sale: dict) -> Optional[datetime]:
 
 
 def extract_fast_sample(
-    start_date: str,
-    end_date: str,
     max_calls: Optional[int] = None,
     resume: bool = True,
     run_transform: bool = True,
@@ -806,34 +776,13 @@ def extract_fast_sample(
     Fast extraction with parallel DB writes and resume capability.
     
     Args:
-        start_date: Start date in YYYY-MM-DD format (for client-side filtering only)
-        end_date: End date in YYYY-MM-DD format (for client-side filtering only)
         max_calls: Maximum API calls (None uses MAX_API_CALLS from config, default: 2 for testing)
         resume: If True, resume from lastTimestamp in api_sync_metadata
-        run_transform: If True, run transform_to_facts_optimized for the same
-                       [start_date, end_date] window after extraction completes
+        run_transform: If True, run transform_to_facts_optimized after extraction completes
     
     Returns:
         dict: Statistics about extraction
     """
-    # Use config value if max_calls not provided (defaults to 2 for testing)
-    if max_calls is None:
-        max_calls = MAX_API_CALLS
-    """
-    Fast extraction with parallel DB writes and resume capability.
-    
-    Args:
-        start_date: Start date in YYYY-MM-DD format (for client-side filtering only)
-        end_date: End date in YYYY-MM-DD format (for client-side filtering only)
-        max_calls: Maximum API calls (None for unlimited)
-        resume: If True, resume from lastTimestamp in api_sync_metadata
-        run_transform: If True, run transform_to_facts_optimized for the same
-                       [start_date, end_date] window after extraction completes
-    
-    Returns:
-        dict: Statistics about extraction
-    """
-    # Use config value if max_calls not provided (defaults to 2 for testing)
     if max_calls is None:
         max_calls = MAX_API_CALLS
     
@@ -841,19 +790,12 @@ def extract_fast_sample(
     print("="*80)
     print(" "*25 + "FAST SAMPLE DATA EXTRACTION")
     print("="*80)
-    print(f"  Target Date Range: {start_date} to {end_date} (client-side filtering)")
     print(f"  Batch Accumulation: {BATCH_ACCUMULATION_SIZE:,} records")
     print(f"  Time Flush: {'DISABLED' if MAX_BUFFER_SECONDS <= 0 else f'every ≤{MAX_BUFFER_SECONDS}s'}")
     print(f"  Parallel DB Writes: ENABLED (3 tables)")
     print(f"  Max API Calls: {max_calls if max_calls else 'UNLIMITED'}")
-    print(f"  Early Exit: {'ENABLED' if ENABLE_EARLY_EXIT else 'DISABLED'}")
     print(f"  Resume Mode: {'ENABLED' if resume else 'DISABLED'}")
     print()
-    
-    # Parse dates (for client-side filtering only)
-    target_start = datetime.strptime(start_date, "%Y-%m-%d")
-    target_end = datetime.strptime(end_date, "%Y-%m-%d")
-    buffer_end = target_end + timedelta(days=BUFFER_DAYS)
     
     # Initialize
     session = get_api_session()
@@ -861,7 +803,7 @@ def extract_fast_sample(
     metadata_store = ApiSyncMetadataStore(lambda: engine)
     
     # Job name for metadata tracking
-    job_name = f"fast_extraction:{start_date}:{end_date}"
+    job_name = "fast_extraction_full"
     
     # Check for resume capability
     last_timestamp = None
@@ -881,11 +823,10 @@ def extract_fast_sample(
         print()
     
     # Ensure job exists in metadata
-    metadata_store.ensure_job(job_name, start_date=start_date, end_date=end_date)
+    metadata_store.ensure_job(job_name, start_date=None, end_date=None)
     
     accumulated_sales = []
     call_count = 0
-    consecutive_out_of_range = 0
     latest_date_overall = None
     
     total_stats = {"sales": 0, "items": 0, "payments": 0, "api_calls": 0, "batches_written": 0}
@@ -915,8 +856,8 @@ def extract_fast_sample(
             last_timestamp=last_timestamp,
             records_extracted=total_stats["sales"],
             status='IN_PROGRESS',
-            date_range_start=start_date,
-            date_range_end=end_date,
+            date_range_start=None,
+            date_range_end=None,
         )
 
         accumulated_sales = []
@@ -977,25 +918,12 @@ def extract_fast_sample(
                 print(f"  [COMPLETE] No more timestamps available")
                 break
             
-            # Filter by date range if early exit enabled
-            if ENABLE_EARLY_EXIT:
-                batch_dates = [dt for sale in sales_batch if (dt := parse_sale_datetime(sale))]
-                if batch_dates:
-                    max_date = max(batch_dates)
+            # Track latest date for reporting
+            batch_dates = [dt for sale in sales_batch if (dt := parse_sale_datetime(sale))]
+            if batch_dates:
+                max_date = max(batch_dates)
+                if not latest_date_overall or max_date > latest_date_overall:
                     latest_date_overall = max_date
-                    if max_date > buffer_end:
-                        in_range = [d for d in batch_dates if target_start <= d <= target_end]
-                        if not in_range:
-                            consecutive_out_of_range += 1
-                            if consecutive_out_of_range >= 3:
-                                print()
-                                print(f"[SMART EXIT] 3 consecutive batches beyond target range")
-                                print(f"  Latest date: {max_date.date()}")
-                                print(f"  Target end: {end_date} (+ {BUFFER_DAYS} buffer)")
-                                accumulated_sales.extend(sales_batch)
-                                break
-                        else:
-                            consecutive_out_of_range = 0
             
             # Accumulate batch
             accumulated_sales.extend(sales_batch)
@@ -1026,8 +954,8 @@ def extract_fast_sample(
             last_timestamp=last_timestamp,
             records_extracted=total_stats["sales"],
             status='COMPLETED',
-            date_range_start=start_date,
-            date_range_end=end_date,
+            date_range_start=None,
+            date_range_end=None,
         )
 
         # Optionally run transformation to fact table for the same window
@@ -1081,8 +1009,8 @@ def extract_fast_sample(
             last_timestamp=last_timestamp,
             records_extracted=total_stats["sales"],
             status='INTERRUPTED',
-            date_range_start=start_date,
-            date_range_end=end_date,
+            date_range_start=None,
+            date_range_end=None,
         )
         print(f"  [CHECKPOINT] Saved lastTimestamp: {last_timestamp} (resume available)")
         
@@ -1090,20 +1018,18 @@ def extract_fast_sample(
 
 
 if __name__ == "__main__":
-    # Example usage
+    # Example usage: python extract_fast_sample.py [max_calls]
     import sys
-    
-    if len(sys.argv) >= 3:
-        start_date = sys.argv[1]
-        end_date = sys.argv[2]
-        max_calls = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else None
-    else:
-        # Default: 1 year of data
-        start_date = "2024-01-01"
-        end_date = "2024-12-31"
-        max_calls = None  # Unlimited
-    
-    print(f"Starting fast extraction: {start_date} to {end_date}")
-    stats = extract_fast_sample(start_date, end_date, max_calls)
-    print(f"\nFinal Stats: {stats}")
 
+    max_calls = None
+
+    if len(sys.argv) >= 2 and sys.argv[1].isdigit():
+        max_calls = int(sys.argv[1])
+    else:
+        # Allow environment-based defaults for convenience
+        max_calls_env = os.getenv("FAST_SAMPLE_MAX_CALLS")
+        if max_calls_env and max_calls_env.isdigit():
+            max_calls = int(max_calls_env)
+
+    stats = extract_fast_sample(max_calls=max_calls)
+    print(f"\nFinal Stats: {stats}")

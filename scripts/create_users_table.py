@@ -15,8 +15,8 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 
 def get_db_engine():
-    """Creates a SQLAlchemy engine from .env.cloud credentials."""
-    driver = os.getenv("TARGET_DRIVER", "ODBC Driver 18 for SQL Server").replace(" ", "+")
+    """Creates a SQLAlchemy engine from .env.local credentials."""
+    driver = os.getenv("TARGET_DRIVER", "ODBC Driver 17 for SQL Server").replace(" ", "+")
     server = os.getenv("TARGET_SERVER")
     database = os.getenv("TARGET_DATABASE")
     user = os.getenv("TARGET_USERNAME")
@@ -185,8 +185,8 @@ def main():
     print()
     
     try:
-        # Load cloud environment variables
-        load_dotenv('.env.cloud')
+        # Load local environment variables
+        load_dotenv('.env.local')
         
         # Verify required environment variables
         required_vars = ['TARGET_SERVER', 'TARGET_DATABASE', 'TARGET_USERNAME', 'TARGET_PASSWORD']

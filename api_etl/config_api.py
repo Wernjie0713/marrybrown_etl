@@ -14,8 +14,8 @@ AUTH_LEVEL = "5"
 
 
 # Production configuration
-BATCH_SIZE = 5000      # Batch size per API call
-MAX_API_CALLS = 25    # Maximum API calls limit
+BATCH_SIZE = 1000      # Batch size per API call (API max limit is 1000)
+MAX_API_CALLS = 250    # Maximum API calls limit
 
 # Smart Early Exit Configuration
 # ================================
