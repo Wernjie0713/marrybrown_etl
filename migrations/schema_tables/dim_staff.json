@@ -1,0 +1,34 @@
+[
+  {
+    "TableName": "dim_staff",
+    "column_id": 1,
+    "ColumnName": "StaffKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 2,
+    "ColumnName": "StaffUsername",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 3,
+    "ColumnName": "StaffFullName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 4,
+    "ColumnName": "StaffType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  }
+]

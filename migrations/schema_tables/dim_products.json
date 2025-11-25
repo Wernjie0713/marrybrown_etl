@@ -1,0 +1,82 @@
+[
+  {
+    "TableName": "dim_products",
+    "column_id": 1,
+    "ColumnName": "ProductKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 2,
+    "ColumnName": "SourceProductID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 3,
+    "ColumnName": "ProductCode",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 4,
+    "ColumnName": "ProductName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 5,
+    "ColumnName": "Category",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 6,
+    "ColumnName": "ProductType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 7,
+    "ColumnName": "Brand",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 8,
+    "ColumnName": "CurrentSalePrice",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 9,
+    "ColumnName": "IsPackage",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 10,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  }
+]

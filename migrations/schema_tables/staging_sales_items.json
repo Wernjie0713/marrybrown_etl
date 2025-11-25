@@ -1,0 +1,202 @@
+[
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 1,
+    "ColumnName": "ItemID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 2,
+    "ColumnName": "SaleID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 3,
+    "ColumnName": "ProductID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 4,
+    "ColumnName": "ProductCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 5,
+    "ColumnName": "ProductName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 6,
+    "ColumnName": "Category",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 7,
+    "ColumnName": "Quantity",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 8,
+    "ColumnName": "UnitPrice",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 9,
+    "ColumnName": "Subtotal",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 10,
+    "ColumnName": "DiscountAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 11,
+    "ColumnName": "NetAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 12,
+    "ColumnName": "TaxAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 13,
+    "ColumnName": "TotalAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 14,
+    "ColumnName": "TaxCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 15,
+    "ColumnName": "TaxRate",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 16,
+    "ColumnName": "Cost",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 17,
+    "ColumnName": "IsFOC",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 18,
+    "ColumnName": "Model",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 19,
+    "ColumnName": "IsServiceCharge",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 20,
+    "ColumnName": "SalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 21,
+    "ColumnName": "SubSalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 22,
+    "ColumnName": "SalesPerson",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 23,
+    "ColumnName": "BatchID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 24,
+    "ColumnName": "LoadedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 25,
+    "ColumnName": "CostAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  }
+]

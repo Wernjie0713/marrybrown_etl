@@ -1,0 +1,42 @@
+[
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 1,
+    "ColumnName": "DimensionName",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 2,
+    "ColumnName": "SourceHash",
+    "DataType": "char",
+    "max_length": 64,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 3,
+    "ColumnName": "RowCount",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 4,
+    "ColumnName": "LastRunUTC",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 5,
+    "ColumnName": "LastDurationSeconds",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  }
+]

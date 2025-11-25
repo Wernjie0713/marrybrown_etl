@@ -1,0 +1,106 @@
+[
+  {
+    "TableName": "dim_customers",
+    "column_id": 1,
+    "ColumnName": "CustomerKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 2,
+    "ColumnName": "CustomerGUID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 3,
+    "ColumnName": "CustomerCode",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 4,
+    "ColumnName": "FullName",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 5,
+    "ColumnName": "FirstName",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 6,
+    "ColumnName": "LastName",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 7,
+    "ColumnName": "MobileNumber",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 8,
+    "ColumnName": "Email",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 9,
+    "ColumnName": "CustomerGroup",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 10,
+    "ColumnName": "CurrentLoyaltyPoints",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 11,
+    "ColumnName": "RegistrationDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 12,
+    "ColumnName": "DateOfBirth",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 13,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  }
+]

@@ -1,0 +1,226 @@
+[
+  {
+    "TableName": "staging_sales",
+    "column_id": 1,
+    "ColumnName": "SaleID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 2,
+    "ColumnName": "BusinessDateTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 3,
+    "ColumnName": "SystemDateTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 4,
+    "ColumnName": "OutletID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 5,
+    "ColumnName": "OutletName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 6,
+    "ColumnName": "CashierName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 7,
+    "ColumnName": "SalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 8,
+    "ColumnName": "SubSalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 9,
+    "ColumnName": "GrandTotal",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 10,
+    "ColumnName": "NetAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 11,
+    "ColumnName": "TaxAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 12,
+    "ColumnName": "Paid",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 13,
+    "ColumnName": "Balance",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 14,
+    "ColumnName": "Rounding",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 15,
+    "ColumnName": "PaxNumber",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 16,
+    "ColumnName": "BillDiscountAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 17,
+    "ColumnName": "OrderNo",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 18,
+    "ColumnName": "PaymentStatus",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 19,
+    "ColumnName": "Status",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 20,
+    "ColumnName": "BatchID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 21,
+    "ColumnName": "LoadedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 22,
+    "ColumnName": "TerminalCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 23,
+    "ColumnName": "OutletCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 24,
+    "ColumnName": "CustomerID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 25,
+    "ColumnName": "CustomerName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 26,
+    "ColumnName": "OrderSource",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 27,
+    "ColumnName": "DeliveryType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 28,
+    "ColumnName": "SalesPerson",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  }
+]

@@ -1,0 +1,114 @@
+[
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 1,
+    "ColumnName": "SyncID",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 2,
+    "ColumnName": "LastTimestamp",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 3,
+    "ColumnName": "SyncStartTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 4,
+    "ColumnName": "SyncEndTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 5,
+    "ColumnName": "RecordsExtracted",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 6,
+    "ColumnName": "Status",
+    "DataType": "nvarchar",
+    "max_length": 40,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 7,
+    "ColumnName": "ErrorMessage",
+    "DataType": "nvarchar",
+    "max_length": -1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 8,
+    "ColumnName": "DateRangeStart",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 9,
+    "ColumnName": "DateRangeEnd",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 10,
+    "ColumnName": "JobName",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": false
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 11,
+    "ColumnName": "LastChunkNumber",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 12,
+    "ColumnName": "LastChunkRowCount",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 13,
+    "ColumnName": "LastChunkDurationSeconds",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 14,
+    "ColumnName": "LastChunkCompletedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  }
+]

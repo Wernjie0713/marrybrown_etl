@@ -1,0 +1,98 @@
+[
+  {
+    "TableName": "etl_progress",
+    "column_id": 1,
+    "ColumnName": "job_id",
+    "DataType": "varchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 2,
+    "ColumnName": "last_timestamp",
+    "DataType": "varchar",
+    "max_length": 50,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 3,
+    "ColumnName": "last_call_count",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 4,
+    "ColumnName": "start_date",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 5,
+    "ColumnName": "end_date",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 6,
+    "ColumnName": "chunk_size",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 7,
+    "ColumnName": "last_updated",
+    "DataType": "datetime2",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 8,
+    "ColumnName": "total_sales_loaded",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 9,
+    "ColumnName": "total_items_loaded",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 10,
+    "ColumnName": "total_payments_loaded",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 11,
+    "ColumnName": "status",
+    "DataType": "varchar",
+    "max_length": 50,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 12,
+    "ColumnName": "error_message",
+    "DataType": "nvarchar",
+    "max_length": -1,
+    "is_nullable": true
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "TableName": "dim_terminals",
+    "column_id": 1,
+    "ColumnName": "TerminalKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 2,
+    "ColumnName": "TerminalID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 3,
+    "ColumnName": "LocationKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 4,
+    "ColumnName": "TerminalName",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 5,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "TableName": "dim_locations",
+    "column_id": 1,
+    "ColumnName": "LocationKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 2,
+    "ColumnName": "LocationGUID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 3,
+    "ColumnName": "LocationName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 4,
+    "ColumnName": "City",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 5,
+    "ColumnName": "State",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 6,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  }
+]

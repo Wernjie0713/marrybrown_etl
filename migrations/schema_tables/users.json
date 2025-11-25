@@ -1,0 +1,66 @@
+[
+  {
+    "TableName": "users",
+    "column_id": 1,
+    "ColumnName": "id",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 2,
+    "ColumnName": "email",
+    "DataType": "varchar",
+    "max_length": 255,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 3,
+    "ColumnName": "hashed_password",
+    "DataType": "varchar",
+    "max_length": 255,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 4,
+    "ColumnName": "full_name",
+    "DataType": "varchar",
+    "max_length": 255,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 5,
+    "ColumnName": "is_active",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 6,
+    "ColumnName": "is_superuser",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 7,
+    "ColumnName": "created_at",
+    "DataType": "datetime2",
+    "max_length": 8,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 8,
+    "ColumnName": "updated_at",
+    "DataType": "datetime2",
+    "max_length": 8,
+    "is_nullable": false
+  }
+]

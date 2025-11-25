@@ -1,0 +1,74 @@
+[
+  {
+    "TableName": "dim_promotions",
+    "column_id": 1,
+    "ColumnName": "PromotionKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 2,
+    "ColumnName": "SourcePromotionID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 3,
+    "ColumnName": "PromotionName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 4,
+    "ColumnName": "PromotionDescription",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 5,
+    "ColumnName": "PromotionCode",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 6,
+    "ColumnName": "PromotionType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 7,
+    "ColumnName": "StartDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 8,
+    "ColumnName": "EndDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 9,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  }
+]

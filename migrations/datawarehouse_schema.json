@@ -1,0 +1,1658 @@
+[
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 1,
+    "ColumnName": "SyncID",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 2,
+    "ColumnName": "LastTimestamp",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 3,
+    "ColumnName": "SyncStartTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 4,
+    "ColumnName": "SyncEndTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 5,
+    "ColumnName": "RecordsExtracted",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 6,
+    "ColumnName": "Status",
+    "DataType": "nvarchar",
+    "max_length": 40,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 7,
+    "ColumnName": "ErrorMessage",
+    "DataType": "nvarchar",
+    "max_length": -1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 8,
+    "ColumnName": "DateRangeStart",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 9,
+    "ColumnName": "DateRangeEnd",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 10,
+    "ColumnName": "JobName",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": false
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 11,
+    "ColumnName": "LastChunkNumber",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 12,
+    "ColumnName": "LastChunkRowCount",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 13,
+    "ColumnName": "LastChunkDurationSeconds",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "api_sync_metadata",
+    "column_id": 14,
+    "ColumnName": "LastChunkCompletedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 1,
+    "ColumnName": "CustomerKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 2,
+    "ColumnName": "CustomerGUID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 3,
+    "ColumnName": "CustomerCode",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 4,
+    "ColumnName": "FullName",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 5,
+    "ColumnName": "FirstName",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 6,
+    "ColumnName": "LastName",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 7,
+    "ColumnName": "MobileNumber",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 8,
+    "ColumnName": "Email",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 9,
+    "ColumnName": "CustomerGroup",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 10,
+    "ColumnName": "CurrentLoyaltyPoints",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 11,
+    "ColumnName": "RegistrationDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 12,
+    "ColumnName": "DateOfBirth",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_customers",
+    "column_id": 13,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 1,
+    "ColumnName": "DateKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 2,
+    "ColumnName": "FullDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 3,
+    "ColumnName": "DayOfWeek",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 4,
+    "ColumnName": "DayName",
+    "DataType": "varchar",
+    "max_length": 10,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 5,
+    "ColumnName": "DayOfMonth",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 6,
+    "ColumnName": "DayOfYear",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 7,
+    "ColumnName": "WeekOfYear",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 8,
+    "ColumnName": "MonthName",
+    "DataType": "varchar",
+    "max_length": 10,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 9,
+    "ColumnName": "MonthOfYear",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 10,
+    "ColumnName": "Quarter",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 11,
+    "ColumnName": "Year",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 12,
+    "ColumnName": "IsWeekend",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 13,
+    "ColumnName": "IsHoliday",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 1,
+    "ColumnName": "LocationKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 2,
+    "ColumnName": "LocationGUID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 3,
+    "ColumnName": "LocationName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 4,
+    "ColumnName": "City",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 5,
+    "ColumnName": "State",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_locations",
+    "column_id": 6,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_payment_types",
+    "column_id": 1,
+    "ColumnName": "PaymentTypeKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_payment_types",
+    "column_id": 2,
+    "ColumnName": "PaymentMethodName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_payment_types",
+    "column_id": 3,
+    "ColumnName": "PaymentCategory",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 1,
+    "ColumnName": "ProductKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 2,
+    "ColumnName": "SourceProductID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 3,
+    "ColumnName": "ProductCode",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 4,
+    "ColumnName": "ProductName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 5,
+    "ColumnName": "Category",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 6,
+    "ColumnName": "ProductType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 7,
+    "ColumnName": "Brand",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 8,
+    "ColumnName": "CurrentSalePrice",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 9,
+    "ColumnName": "IsPackage",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_products",
+    "column_id": 10,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 1,
+    "ColumnName": "PromotionKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 2,
+    "ColumnName": "SourcePromotionID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 3,
+    "ColumnName": "PromotionName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 4,
+    "ColumnName": "PromotionDescription",
+    "DataType": "nvarchar",
+    "max_length": 1000,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 5,
+    "ColumnName": "PromotionCode",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 6,
+    "ColumnName": "PromotionType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 7,
+    "ColumnName": "StartDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 8,
+    "ColumnName": "EndDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_promotions",
+    "column_id": 9,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 1,
+    "ColumnName": "StaffKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 2,
+    "ColumnName": "StaffUsername",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 3,
+    "ColumnName": "StaffFullName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_staff",
+    "column_id": 4,
+    "ColumnName": "StaffType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 1,
+    "ColumnName": "TerminalKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 2,
+    "ColumnName": "TerminalID",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 3,
+    "ColumnName": "LocationKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 4,
+    "ColumnName": "TerminalName",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_terminals",
+    "column_id": 5,
+    "ColumnName": "IsActive",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 1,
+    "ColumnName": "TimeKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 2,
+    "ColumnName": "FullTime",
+    "DataType": "time",
+    "max_length": 5,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 3,
+    "ColumnName": "Hour",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 4,
+    "ColumnName": "Minute",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 5,
+    "ColumnName": "Second",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 6,
+    "ColumnName": "HourName",
+    "DataType": "varchar",
+    "max_length": 10,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 7,
+    "ColumnName": "PeriodOfDay",
+    "DataType": "varchar",
+    "max_length": 20,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 1,
+    "ColumnName": "DimensionName",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 2,
+    "ColumnName": "SourceHash",
+    "DataType": "char",
+    "max_length": 64,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 3,
+    "ColumnName": "RowCount",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 4,
+    "ColumnName": "LastRunUTC",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dimension_refresh_audit",
+    "column_id": 5,
+    "ColumnName": "LastDurationSeconds",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 1,
+    "ColumnName": "job_id",
+    "DataType": "varchar",
+    "max_length": 100,
+    "is_nullable": false
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 2,
+    "ColumnName": "last_timestamp",
+    "DataType": "varchar",
+    "max_length": 50,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 3,
+    "ColumnName": "last_call_count",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 4,
+    "ColumnName": "start_date",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 5,
+    "ColumnName": "end_date",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 6,
+    "ColumnName": "chunk_size",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 7,
+    "ColumnName": "last_updated",
+    "DataType": "datetime2",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 8,
+    "ColumnName": "total_sales_loaded",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 9,
+    "ColumnName": "total_items_loaded",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 10,
+    "ColumnName": "total_payments_loaded",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 11,
+    "ColumnName": "status",
+    "DataType": "varchar",
+    "max_length": 50,
+    "is_nullable": true
+  },
+  {
+    "TableName": "etl_progress",
+    "column_id": 12,
+    "ColumnName": "error_message",
+    "DataType": "nvarchar",
+    "max_length": -1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 1,
+    "ColumnName": "TransactionKey",
+    "DataType": "bigint",
+    "max_length": 8,
+    "is_nullable": false
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 2,
+    "ColumnName": "DateKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 3,
+    "ColumnName": "TimeKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 4,
+    "ColumnName": "LocationKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 5,
+    "ColumnName": "ProductKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 6,
+    "ColumnName": "CustomerKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 7,
+    "ColumnName": "StaffKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 8,
+    "ColumnName": "PromotionKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 9,
+    "ColumnName": "PaymentTypeKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 10,
+    "ColumnName": "TerminalKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 11,
+    "ColumnName": "SaleNumber",
+    "DataType": "nvarchar",
+    "max_length": 90,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 12,
+    "ColumnName": "SaleType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 13,
+    "ColumnName": "SubSalesType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 14,
+    "ColumnName": "SalesStatus",
+    "DataType": "nvarchar",
+    "max_length": 40,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 15,
+    "ColumnName": "OrderSource",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 16,
+    "ColumnName": "Quantity",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 17,
+    "ColumnName": "GrossAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 18,
+    "ColumnName": "DiscountAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 19,
+    "ColumnName": "NetAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 20,
+    "ColumnName": "TaxAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 21,
+    "ColumnName": "TotalAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 22,
+    "ColumnName": "CostAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 23,
+    "ColumnName": "CardType",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 24,
+    "ColumnName": "TaxCode",
+    "DataType": "nvarchar",
+    "max_length": 40,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 25,
+    "ColumnName": "TaxRate",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 26,
+    "ColumnName": "IsFOC",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 27,
+    "ColumnName": "Rounding",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 28,
+    "ColumnName": "Model",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 29,
+    "ColumnName": "IsServiceCharge",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 30,
+    "ColumnName": "CreatedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "fact_sales_transactions",
+    "column_id": 31,
+    "ColumnName": "UpdatedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 1,
+    "ColumnName": "PaymentID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 2,
+    "ColumnName": "SaleID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 3,
+    "ColumnName": "PaymentMethod",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 4,
+    "ColumnName": "Amount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 5,
+    "ColumnName": "PaymentDateTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 6,
+    "ColumnName": "BusinessDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 7,
+    "ColumnName": "PaymentReference",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 8,
+    "ColumnName": "EODSessionID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 9,
+    "ColumnName": "TenderAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 10,
+    "ColumnName": "ChangeAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 11,
+    "ColumnName": "CardType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 12,
+    "ColumnName": "IsVoid",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 13,
+    "ColumnName": "BatchID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 14,
+    "ColumnName": "LoadedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 1,
+    "ColumnName": "SaleID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 2,
+    "ColumnName": "BusinessDateTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 3,
+    "ColumnName": "SystemDateTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 4,
+    "ColumnName": "OutletID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 5,
+    "ColumnName": "OutletName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 6,
+    "ColumnName": "CashierName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 7,
+    "ColumnName": "SalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 8,
+    "ColumnName": "SubSalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 9,
+    "ColumnName": "GrandTotal",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 10,
+    "ColumnName": "NetAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 11,
+    "ColumnName": "TaxAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 12,
+    "ColumnName": "Paid",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 13,
+    "ColumnName": "Balance",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 14,
+    "ColumnName": "Rounding",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 15,
+    "ColumnName": "PaxNumber",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 16,
+    "ColumnName": "BillDiscountAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 17,
+    "ColumnName": "OrderNo",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 18,
+    "ColumnName": "PaymentStatus",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 19,
+    "ColumnName": "Status",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 20,
+    "ColumnName": "BatchID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 21,
+    "ColumnName": "LoadedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 22,
+    "ColumnName": "TerminalCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 23,
+    "ColumnName": "OutletCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 24,
+    "ColumnName": "CustomerID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 25,
+    "ColumnName": "CustomerName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 26,
+    "ColumnName": "OrderSource",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 27,
+    "ColumnName": "DeliveryType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales",
+    "column_id": 28,
+    "ColumnName": "SalesPerson",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 1,
+    "ColumnName": "ItemID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 2,
+    "ColumnName": "SaleID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 3,
+    "ColumnName": "ProductID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 4,
+    "ColumnName": "ProductCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 5,
+    "ColumnName": "ProductName",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 6,
+    "ColumnName": "Category",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 7,
+    "ColumnName": "Quantity",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 8,
+    "ColumnName": "UnitPrice",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 9,
+    "ColumnName": "Subtotal",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 10,
+    "ColumnName": "DiscountAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 11,
+    "ColumnName": "NetAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 12,
+    "ColumnName": "TaxAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 13,
+    "ColumnName": "TotalAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 14,
+    "ColumnName": "TaxCode",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 15,
+    "ColumnName": "TaxRate",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 16,
+    "ColumnName": "Cost",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 17,
+    "ColumnName": "IsFOC",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 18,
+    "ColumnName": "Model",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 19,
+    "ColumnName": "IsServiceCharge",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 20,
+    "ColumnName": "SalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 21,
+    "ColumnName": "SubSalesType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 22,
+    "ColumnName": "SalesPerson",
+    "DataType": "nvarchar",
+    "max_length": 600,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 23,
+    "ColumnName": "BatchID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 24,
+    "ColumnName": "LoadedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_sales_items",
+    "column_id": 25,
+    "ColumnName": "CostAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "users",
+    "column_id": 1,
+    "ColumnName": "id",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 2,
+    "ColumnName": "email",
+    "DataType": "varchar",
+    "max_length": 255,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 3,
+    "ColumnName": "hashed_password",
+    "DataType": "varchar",
+    "max_length": 255,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 4,
+    "ColumnName": "full_name",
+    "DataType": "varchar",
+    "max_length": 255,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 5,
+    "ColumnName": "is_active",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 6,
+    "ColumnName": "is_superuser",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 7,
+    "ColumnName": "created_at",
+    "DataType": "datetime2",
+    "max_length": 8,
+    "is_nullable": false
+  },
+  {
+    "TableName": "users",
+    "column_id": 8,
+    "ColumnName": "updated_at",
+    "DataType": "datetime2",
+    "max_length": 8,
+    "is_nullable": false
+  }
+]

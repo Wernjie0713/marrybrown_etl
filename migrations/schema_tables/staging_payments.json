@@ -1,0 +1,114 @@
+[
+  {
+    "TableName": "staging_payments",
+    "column_id": 1,
+    "ColumnName": "PaymentID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 2,
+    "ColumnName": "SaleID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 3,
+    "ColumnName": "PaymentMethod",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 4,
+    "ColumnName": "Amount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 5,
+    "ColumnName": "PaymentDateTime",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 6,
+    "ColumnName": "BusinessDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 7,
+    "ColumnName": "PaymentReference",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 8,
+    "ColumnName": "EODSessionID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 9,
+    "ColumnName": "TenderAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 10,
+    "ColumnName": "ChangeAmount",
+    "DataType": "decimal",
+    "max_length": 9,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 11,
+    "ColumnName": "CardType",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 12,
+    "ColumnName": "IsVoid",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 13,
+    "ColumnName": "BatchID",
+    "DataType": "nvarchar",
+    "max_length": 200,
+    "is_nullable": true
+  },
+  {
+    "TableName": "staging_payments",
+    "column_id": 14,
+    "ColumnName": "LoadedAt",
+    "DataType": "datetime",
+    "max_length": 8,
+    "is_nullable": true
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "TableName": "dim_payment_types",
+    "column_id": 1,
+    "ColumnName": "PaymentTypeKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_payment_types",
+    "column_id": 2,
+    "ColumnName": "PaymentMethodName",
+    "DataType": "nvarchar",
+    "max_length": 400,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_payment_types",
+    "column_id": 3,
+    "ColumnName": "PaymentCategory",
+    "DataType": "nvarchar",
+    "max_length": 100,
+    "is_nullable": true
+  }
+]

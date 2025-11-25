@@ -1,0 +1,58 @@
+[
+  {
+    "TableName": "dim_time",
+    "column_id": 1,
+    "ColumnName": "TimeKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 2,
+    "ColumnName": "FullTime",
+    "DataType": "time",
+    "max_length": 5,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 3,
+    "ColumnName": "Hour",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 4,
+    "ColumnName": "Minute",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 5,
+    "ColumnName": "Second",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 6,
+    "ColumnName": "HourName",
+    "DataType": "varchar",
+    "max_length": 10,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_time",
+    "column_id": 7,
+    "ColumnName": "PeriodOfDay",
+    "DataType": "varchar",
+    "max_length": 20,
+    "is_nullable": true
+  }
+]

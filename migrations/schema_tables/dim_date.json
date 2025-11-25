@@ -1,0 +1,106 @@
+[
+  {
+    "TableName": "dim_date",
+    "column_id": 1,
+    "ColumnName": "DateKey",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 2,
+    "ColumnName": "FullDate",
+    "DataType": "date",
+    "max_length": 3,
+    "is_nullable": false
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 3,
+    "ColumnName": "DayOfWeek",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 4,
+    "ColumnName": "DayName",
+    "DataType": "varchar",
+    "max_length": 10,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 5,
+    "ColumnName": "DayOfMonth",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 6,
+    "ColumnName": "DayOfYear",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 7,
+    "ColumnName": "WeekOfYear",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 8,
+    "ColumnName": "MonthName",
+    "DataType": "varchar",
+    "max_length": 10,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 9,
+    "ColumnName": "MonthOfYear",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 10,
+    "ColumnName": "Quarter",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 11,
+    "ColumnName": "Year",
+    "DataType": "int",
+    "max_length": 4,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 12,
+    "ColumnName": "IsWeekend",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  },
+  {
+    "TableName": "dim_date",
+    "column_id": 13,
+    "ColumnName": "IsHoliday",
+    "DataType": "bit",
+    "max_length": 1,
+    "is_nullable": true
+  }
+]
