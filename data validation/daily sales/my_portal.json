@@ -1,0 +1,74 @@
+[
+  {
+    "date": "2019-04-01",
+    "store_name": "MB ANGSANA",
+    "sales_amount": 3385.65,
+    "profit_amount": 3383.85
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB CENTRAL I-CITY",
+    "sales_amount": 4540.75,
+    "profit_amount": 4540.75
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB CHANGLOON",
+    "sales_amount": 2656.95,
+    "profit_amount": 2656.95
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB CITTA MALL",
+    "sales_amount": 2810.18,
+    "profit_amount": 2655.13
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB GM KLANG",
+    "sales_amount": 3645.29,
+    "profit_amount": 3445.04
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB IOI CITY MALL PUTRAJAYA",
+    "sales_amount": 2486.85,
+    "profit_amount": 2352.25
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB IOI KULAI",
+    "sales_amount": 3437.58,
+    "profit_amount": 3251.21
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB IRDKL MALL",
+    "sales_amount": 1109.77,
+    "profit_amount": 1042.92
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB JITRA",
+    "sales_amount": 23006.92,
+    "profit_amount": 21736.9
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB LANGKAWI AIRPORT",
+    "sales_amount": 2812.11,
+    "profit_amount": 2748.32
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB PETRON PAROI OLD",
+    "sales_amount": 4678.81,
+    "profit_amount": 4427.96
+  },
+  {
+    "date": "2019-04-01",
+    "store_name": "MB TANJUNG BALAU",
+    "sales_amount": 756.5,
+    "profit_amount": 756.5
+  }
+]
