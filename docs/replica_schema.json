@@ -1,0 +1,337 @@
+{
+  "tables": [
+    {
+      "name": "APP_4_SALES",
+      "module": "Sales & Transactions",
+      "purpose": "POS receipt header; one row per sale.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Clustered PK; join helper when surrogate numeric ID is preferred."},
+        {"name": "SALES_NO", "type": "varchar", "notes": "Human-readable receipt number; FK target for sales items & payments."},
+        {"name": "DATETIME__SALES_DATE", "type": "date", "notes": "Business date used for T-0/T-1 filtering."},
+        {"name": "NOW_TIME", "type": "varchar", "notes": "HHMMSS stored as text; needed to reconstruct timestamps."},
+        {"name": "SALE_LOCATION", "type": "varchar", "notes": "GUID referencing LOCATION_DETAIL.ID."},
+        {"name": "CUSTOMER_ID", "type": "varchar", "notes": "Links to APP_4_CUSTOMER.ID; blank when walk-in."},
+        {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Channel indicator (XILNEXKIOSK, XILNEXLIVESALES, etc.)."},
+        {"name": "SALES_TYPE", "type": "varchar", "notes": "DINE IN, TAKE AWAY, DELIVERY, RETURN, etc."},
+        {"name": "SUBSALES_TYPE", "type": "varchar", "notes": "Secondary channel such as Catering / Birthday."},
+        {"name": "SALES_STATUS", "type": "varchar", "notes": "COMPLETED, CANCELLED, PENDING... kept for API-level filtering."},
+        {"name": "DOUBLE_TOTAL_AMOUNT", "type": "decimal", "notes": "Grand total paid by customer (tax-inclusive)."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "decimal", "notes": "Header-level tax (when present)."},
+        {"name": "GRANDTOTAL", "type": "decimal", "notes": "Alias sometimes used in API payloads."},
+        {"name": "CASHIER", "type": "varchar", "notes": "Staff display name (used in dim_staff)."},
+        {"name": "SALES_PERSON", "type": "varchar", "notes": "Alternate staff field."},
+        {"name": "SALES_PERSON_USERNAME", "type": "varchar", "notes": "Login/username backing CASHIER."},
+        {"name": "STRING_EXTEND_3", "type": "varchar", "notes": "Terminal ID; join to APP_4_CASHIER_DRAWER.SITEID."},
+        {"name": "BATCHID", "type": "varchar", "notes": "POS batch/shift marker; keep for troubleshooting."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESITEM",
+      "module": "Sales & Transactions",
+      "purpose": "Line items per receipt.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key referenced by fact tables."},
+        {"name": "SALES_NO", "type": "varchar", "notes": "FK to APP_4_SALES.SALES_NO."},
+        {"name": "ITEM_CODE", "type": "varchar", "notes": "Numeric SKU; join to APP_4_ITEM.ATLTERNATE_LOOK_UP."},
+        {"name": "ITEM_NAME", "type": "varchar", "notes": "Snapshot of product name at sale time."},
+        {"name": "CATEGORY", "type": "varchar", "notes": "Category copied from product."},
+        {"name": "INT_QUANTITY", "type": "decimal", "notes": "Quantity sold (supports fractional)."},
+        {"name": "DOUBLE_PRICE", "type": "decimal", "notes": "Unit price before tax/discount."},
+        {"name": "DOUBLE_SUB_TOTAL", "type": "decimal", "notes": "Line total including tax (TotalAmount)."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "decimal", "notes": "Item + bill-level tax allocation."},
+        {"name": "DOUBLE_TOTAL_DISCOUNT_AMOUNT", "type": "decimal", "notes": "Item-specific discount."},
+        {"name": "DOUBLE_COST", "type": "decimal", "notes": "Unit cost used for profit."},
+        {"name": "PARENTID", "type": "varchar", "notes": "Combo relationship pointer (rarely populated)."},
+        {"name": "SALES_TYPE", "type": "varchar", "notes": "Copied from header for convenience."},
+        {"name": "SUBSALES_TYPE", "type": "varchar", "notes": "Copied from header."},
+        {"name": "VOUCHER_NO", "type": "varchar", "notes": "Applied promotion reference."},
+        {"name": "TAXCODE", "type": "varchar", "notes": "MGST/SST flag."},
+        {"name": "MODEL", "type": "varchar", "notes": "Menu model / kiosk metadata."}
+      ]
+    },
+    {
+      "name": "APP_4_PAYMENT",
+      "module": "Sales & Transactions",
+      "purpose": "Tender-level data (supports split payments).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key per tender row."},
+        {"name": "INVOICE_ID", "type": "varchar", "notes": "Matches APP_4_SALES.SALES_NO."},
+        {"name": "METHOD", "type": "varchar", "notes": "cash, card, voucher, ewallet, etc."},
+        {"name": "DOUBLE_AMOUNT", "type": "decimal", "notes": "Amount paid by this method."},
+        {"name": "PAYMENTDATETIME", "type": "datetime", "notes": "Timestamp of tender capture."},
+        {"name": "BUSINESSDATE", "type": "date", "notes": "Business date used in reports."},
+        {"name": "STRING_EXTEND_2", "type": "varchar", "notes": "Detailed card/wallet label (CardType)."},
+        {"name": "TENDERAMOUNT", "type": "decimal", "notes": "Amount tendered before change."},
+        {"name": "CHANGEAMOUNT", "type": "decimal", "notes": "Change returned to customer."},
+        {"name": "EODSESSIONID", "type": "varchar", "notes": "Tie to end-of-day reconciliation."},
+        {"name": "ISVOID", "type": "bit", "notes": "Marks voided tenders."}
+      ]
+    },
+    {
+      "name": "APP_4_ITEM",
+      "module": "Products & Inventory",
+      "purpose": "Master catalog including sellable + base items.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_CODE", "type": "varchar", "notes": "Alphanumeric SKU exposed in UI."},
+        {"name": "ATLTERNATE_LOOK_UP", "type": "varchar", "notes": "Numeric SKU used in transactions (critical join)."},
+        {"name": "ITEM_NAME", "type": "varchar", "notes": "Product name."},
+        {"name": "CATEGORY", "type": "varchar", "notes": "Menu grouping (Beverage, Combo, etc.)."},
+        {"name": "ITEM_TYPE", "type": "varchar", "notes": "Product type / class."},
+        {"name": "ITEM_BRAND", "type": "varchar", "notes": "Brand or sub-brand when provided."},
+        {"name": "DOUBLE_SALE_PRICE", "type": "decimal", "notes": "Current list price."},
+        {"name": "BOOL_DISABLED", "type": "tinyint", "notes": "0 = active, 1 = disabled."},
+        {"name": "BOOL_ISPACKAGE", "type": "tinyint", "notes": "Flag for combo/package items."},
+        {"name": "ADDITIONAL_ITEM_TYPE", "type": "varchar", "notes": "Recipe indicator."}
+      ]
+    },
+    {
+      "name": "APP_4_STOCK",
+      "module": "Products & Inventory",
+      "purpose": "On-hand quantities per item/location.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_CODE", "type": "varchar", "notes": "Numeric SKU referencing APP_4_ITEM."},
+        {"name": "LOCATION", "type": "varchar", "notes": "GUID referencing LOCATION_DETAIL.ID."},
+        {"name": "INT_ONHAND_QUANTITY", "type": "decimal", "notes": "Quantity on hand (weight/volume supported)."}
+      ]
+    },
+    {
+      "name": "APP_4_CUSTOMER",
+      "module": "Customers & Loyalty",
+      "purpose": "CRM master table.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key referenced by APP_4_SALES."},
+        {"name": "CUSTOMER_CODE", "type": "varchar", "notes": "Membership / card number."},
+        {"name": "FIRST_NAME", "type": "varchar", "notes": "Customer first name (often 'GUEST')."},
+        {"name": "LAST_NAME", "type": "varchar", "notes": "Customer last name."},
+        {"name": "COMPANY_NAME", "type": "varchar", "notes": "Used when account is corporate."},
+        {"name": "MOBILE", "type": "varchar", "notes": "Primary contact; often unique for app users."},
+        {"name": "EMAIL", "type": "varchar", "notes": "Optional contact."},
+        {"name": "CUSTOMER_GROUP", "type": "varchar", "notes": "Segment/loyalty tier."},
+        {"name": "DOUBLE_ACCUMULATE_VALUE", "type": "decimal", "notes": "Current loyalty points (actual field in use)."},
+        {"name": "DOUBLE_POINT_VALUE", "type": "decimal", "notes": "Legacy column (observed NULL but keep for parity)."},
+        {"name": "BOOL_ACTIVE", "type": "tinyint", "notes": "Account active flag."},
+        {"name": "DATETIME__CREATION_DATE", "type": "datetime", "notes": "Registration timestamp."},
+        {"name": "DATETIME__DOB", "type": "datetime", "notes": "Date of birth (00-00-0000 treated as NULL)."}
+      ]
+    },
+    {
+      "name": "APP_4_POINTRECORD",
+      "module": "Customers & Loyalty",
+      "purpose": "Loyalty point transaction log.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key per point transaction."},
+        {"name": "CLIENT_ID", "type": "varchar", "notes": "FK to APP_4_CUSTOMER.ID."},
+        {"name": "SALESID", "type": "varchar", "notes": "FK to APP_4_SALES.SALES_NO."},
+        {"name": "DOUBLE_ACCUMULATE_VALUE", "type": "decimal", "notes": "Points earned/spent in this transaction."},
+        {"name": "DOUBLE_POINT_VALUE", "type": "decimal", "notes": "Legacy points column (NULL but retained)."},
+        {"name": "REMARK", "type": "varchar", "notes": "Descriptive text (e.g., Sales ID)."},
+        {"name": "DATETIME__RECORD_DATE", "type": "date", "notes": "Point event date."}
+      ]
+    },
+    {
+      "name": "LOCATION_DETAIL",
+      "module": "Outlets",
+      "purpose": "Authoritative outlet master.",
+      "columns": [
+        {"name": "LOCATION_INT_ID", "type": "int", "notes": "Clustered PK."},
+        {"name": "ID", "type": "varchar", "notes": "GUID referenced by sales, stock, etc."},
+        {"name": "LOCATIONNAME", "type": "varchar", "notes": "Display name used in reports."},
+        {"name": "LOCSTATUS", "type": "varchar", "notes": "Operational status (Active/Closed)."},
+        {"name": "LOCATION_DELETED", "type": "tinyint", "notes": "Soft-delete flag (0=active)."},
+        {"name": "ADDRESS1", "type": "varchar", "notes": "Street info if available."},
+        {"name": "CITY", "type": "varchar", "notes": "Parsed city (if stored)."},
+        {"name": "STATE", "type": "varchar", "notes": "State/region."},
+        {"name": "POSTCODE", "type": "varchar", "notes": "Postal code."}
+      ]
+    },
+    {
+      "name": "APP_4_VOUCHER_MASTER",
+      "module": "Promotions",
+      "purpose": "Promotion / voucher definitions.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key; referenced by voucher_no."},
+        {"name": "RULE_TITLE", "type": "varchar", "notes": "Promotion name."},
+        {"name": "RULE_DESCRIPTION", "type": "varchar", "notes": "Long description."},
+        {"name": "REWARD_CODE", "type": "varchar", "notes": "Voucher/promo code used at POS."},
+        {"name": "VOUCHER_MASTER_TYPE", "type": "int", "notes": "1=Product Deal, 2=Discount, 4=Gift, etc."},
+        {"name": "DATETIME__ACTIVATE_DATE", "type": "datetime", "notes": "Start date."},
+        {"name": "DATETIME__EXPIRY_DATE", "type": "datetime", "notes": "End date."},
+        {"name": "IS_ACTIVATE", "type": "tinyint", "notes": "Activation flag."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete indicator."}
+      ]
+    },
+    {
+      "name": "APP_4_CASHIER_DRAWER",
+      "module": "Sales & Transactions",
+      "purpose": "Terminal metadata for POS drawers.",
+      "columns": [
+        {"name": "SITEID", "type": "varchar", "notes": "Terminal identifier referenced via STRING_EXTEND_3."},
+        {"name": "BRANCHID", "type": "varchar", "notes": "GUID referencing LOCATION_DETAIL.ID."},
+        {"name": "TERMINALNAME", "type": "varchar", "notes": "Friendly name (may need to be derived)."}
+      ]
+    },
+    {
+      "name": "APP_4_VOIDSALESITEM",
+      "module": "Sales & Transactions",
+      "purpose": "Audit trail of voided line items (who voided, when, and why).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key for the void record."},
+        {"name": "SALESITEM_ID", "type": "bigint", "notes": "Links back to the original APP_4_SALESITEM row."},
+        {"name": "SALES_NO", "type": "bigint", "notes": "Receipt number affected by the void."},
+        {"name": "VOID_PERSON", "type": "varchar", "notes": "Staff member who executed the void."},
+        {"name": "DATETIME__VOID_DATETIME", "type": "date", "notes": "Business date of the void event (used for T-1 reconciliation)."},
+        {"name": "VOID_REASON", "type": "varchar", "notes": "Reason supplied by cashier—important for exception reporting."},
+        {"name": "VOID_AMOUNT", "type": "decimal", "notes": "Monetary value reversed."},
+        {"name": "VOID_QUANTITY", "type": "decimal", "notes": "Quantity reversed (needed for product-level analysis)."},
+        {"name": "DOUBLE_COST", "type": "decimal", "notes": "Cost of the voided item for profit adjustments."},
+        {"name": "PERFORMED_TYPE", "type": "varchar", "notes": "Indicates whether void came from POS, API, or escalation."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESCREDITNOTE",
+      "module": "Sales & Transactions",
+      "purpose": "Credit notes / refunds tied to original sales.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key for credit note header."},
+        {"name": "REF_SALES_ID", "type": "bigint", "notes": "Links back to APP_4_SALES.ID that was refunded."},
+        {"name": "CUSTOMER_ID", "type": "bigint", "notes": "Customer reference for CRM tie-outs."},
+        {"name": "CUSTOMER_NAME", "type": "varchar", "notes": "Snapshot of customer name on credit note."},
+        {"name": "DOUBLE_TOTAL_AMOUNT", "type": "decimal", "notes": "Total credit issued (tax-inclusive)."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "decimal", "notes": "Tax component credited."},
+        {"name": "DOUBLE_TOTAL_BILL_DISCOUNT_AMOUNT", "type": "decimal", "notes": "Bill-level discount reversed."},
+        {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Channel metadata (Kiosk, Delivery, etc.)."},
+        {"name": "SALES_PERSON", "type": "varchar", "notes": "Rep responsible for the note."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet where the credit note was issued (GUID to LOCATION_DETAIL)."},
+        {"name": "STATUS", "type": "varchar", "notes": "Approval / cancellation state."},
+        {"name": "DATETIMEUTC_DATE", "type": "datetime", "notes": "UTC timestamp of issuance."},
+        {"name": "DATETIMEUTC_BUSINESS_DATE", "type": "datetime", "notes": "Business date used for reconciliation."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESCREDITNOTEITEM",
+      "module": "Sales & Transactions",
+      "purpose": "Line items inside each credit note.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key per credit note item."},
+        {"name": "DOCUMENT_ID", "type": "bigint", "notes": "Links back to APP_4_SALESCREDITNOTE.ID."},
+        {"name": "REF_SALESITEM_ID", "type": "bigint", "notes": "Original APP_4_SALESITEM reference."},
+        {"name": "ITEM_ID", "type": "bigint", "notes": "Product reference (APP_4_ITEM.ID)."},
+        {"name": "ITEM_CODE", "type": "varchar", "notes": "SKU for reporting."},
+        {"name": "ITEM_NAME", "type": "varchar", "notes": "Snapshot of product name."},
+        {"name": "DOUBLE_QUANTITY", "type": "decimal", "notes": "Quantity refunded."},
+        {"name": "DOUBLE_SUB_TOTAL", "type": "decimal", "notes": "Line value credited (tax-inclusive)."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "decimal", "notes": "Tax reversed for this line."},
+        {"name": "SUBSALES_TYPE", "type": "varchar", "notes": "Channel classification for the credit event."},
+        {"name": "VOUCHER_NO", "type": "varchar", "notes": "Voucher reference when refunds involve promotions."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESDEBITNOTE",
+      "module": "Sales & Transactions",
+      "purpose": "Debit notes (additional charges) linked to original sales.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key for debit note header."},
+        {"name": "REF_SALES_ID", "type": "bigint", "notes": "Base sale that is being adjusted upwards."},
+        {"name": "CUSTOMER_ID", "type": "bigint", "notes": "Customer reference."},
+        {"name": "DOUBLE_TOTAL_AMOUNT", "type": "decimal", "notes": "Amount billed via debit note (tax-inclusive)."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "decimal", "notes": "Tax added as part of the debit note."},
+        {"name": "DOUBLE_TOTAL_BILL_DISCOUNT_AMOUNT", "type": "decimal", "notes": "Bill-level discount reversed/added."},
+        {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Channel metadata."},
+        {"name": "SALES_PERSON", "type": "varchar", "notes": "Responsible staff."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet GUID where note was created."},
+        {"name": "STATUS", "type": "varchar", "notes": "State (completed/cancelled)."},
+        {"name": "DATETIMEUTC_DATE", "type": "datetime", "notes": "UTC issue timestamp."},
+        {"name": "DATETIMEUTC_BUSINESS_DATE", "type": "datetime", "notes": "Business day for reporting."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESDEBITNOTEITEM",
+      "module": "Sales & Transactions",
+      "purpose": "Line items for debit notes (what was charged).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key per debit note item."},
+        {"name": "DOCUMENT_ID", "type": "bigint", "notes": "Links to APP_4_SALESDEBITNOTE.ID."},
+        {"name": "REF_SALESITEM_ID", "type": "bigint", "notes": "Original sales item reference."},
+        {"name": "ITEM_ID", "type": "bigint", "notes": "Product reference."},
+        {"name": "ITEM_CODE", "type": "varchar", "notes": "SKU code."},
+        {"name": "ITEM_NAME", "type": "varchar", "notes": "Product name snapshot."},
+        {"name": "DOUBLE_QUANTITY", "type": "decimal", "notes": "Quantity charged."},
+        {"name": "DOUBLE_SUB_TOTAL", "type": "decimal", "notes": "Subtotal (tax-inclusive) for the line."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "decimal", "notes": "Tax calculated for this line."},
+        {"name": "SUBSALES_TYPE", "type": "varchar", "notes": "Channel classification for the adjustment."},
+        {"name": "VOUCHER_NO", "type": "varchar", "notes": "Voucher/promo reference when debit interacts with promotions."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESDELIVERY",
+      "module": "Sales & Transactions",
+      "purpose": "Captures delivery-specific metadata for sales (addresses, recipients, logistics).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key per delivery record."},
+        {"name": "SALES_NO", "type": "varchar", "notes": "Receipt number this delivery belongs to."},
+        {"name": "SALESITEM_ID", "type": "varchar", "notes": "Line item reference when delivery is item-specific."},
+        {"name": "FROM_LOCATION", "type": "varchar", "notes": "Origin outlet GUID."},
+        {"name": "DELIVERY_STREET", "type": "varchar", "notes": "Destination street address."},
+        {"name": "DELIVERY_CITY", "type": "varchar", "notes": "Destination city."},
+        {"name": "DELIVERY_STATE", "type": "varchar", "notes": "State/region."},
+        {"name": "DELIVERY_COUNTRY", "type": "varchar", "notes": "Country."},
+        {"name": "DELIVERY_ZIPCODE", "type": "varchar", "notes": "Postal code."},
+        {"name": "RECIPIENT", "type": "varchar", "notes": "Recipient name."},
+        {"name": "RECIPIENT_CONTACT", "type": "varchar", "notes": "Phone/email for logistics follow-up."},
+        {"name": "DELIVERY_METHOD", "type": "varchar", "notes": "Courier / self-delivery / aggregator."},
+        {"name": "TRACKING_CODE", "type": "varchar", "notes": "Reference for third-party tracking integrations."}
+      ]
+    },
+    {
+      "name": "APP_4_EXTENDEDSALESITEM",
+      "module": "Sales & Transactions",
+      "purpose": "Holds RFID/EPC data for serialized items (useful for audits).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "SALESITEM_ID", "type": "bigint", "notes": "FK to APP_4_SALESITEM.ID."},
+        {"name": "EPC", "type": "varchar", "notes": "Electronic product code scanned during sale."},
+        {"name": "RFIDSERIALNUMBER", "type": "int", "notes": "Numeric RFID serial for tracking."}
+      ]
+    },
+    {
+      "name": "APP_4_EPAYMENTLOG",
+      "module": "Sales & Transactions",
+      "purpose": "Gateway log for e-wallet / online payment attempts (status + error context).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "SALESNUMBER", "type": "varchar", "notes": "Receipt number tying the log to a sale."},
+        {"name": "METHOD", "type": "varchar", "notes": "Payment network (e.g., TNG, GrabPay, FPX)."},
+        {"name": "STATUS", "type": "varchar", "notes": "SUCCESS/FAILED/PENDING."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Outlet GUID for troubleshooting by store."},
+        {"name": "WALLETREFERENCEID", "type": "varchar", "notes": "Provider reference number for disputes."},
+        {"name": "TYPE", "type": "varchar", "notes": "Transaction type (authorization, capture, void)."},
+        {"name": "AMOUNT", "type": "decimal", "notes": "Amount attempted."},
+        {"name": "TRANSACTIONDATETIME", "type": "datetime", "notes": "Exact timestamp of gateway response."},
+        {"name": "ERRORMESSAGE", "type": "varchar", "notes": "Returned error string when STATUS != SUCCESS."}
+      ]
+    },
+    {
+      "name": "APP_4_VOUCHER",
+      "module": "Sales & Transactions",
+      "purpose": "Voucher issuance/redemption details (transaction-level, not just master definitions).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key per voucher event."},
+        {"name": "VOUCHER_NO", "type": "varchar", "notes": "Voucher code presented at POS."},
+        {"name": "SALES_ID", "type": "bigint", "notes": "Sale that generated/redeemed the voucher."},
+        {"name": "PAYMENT_ID", "type": "bigint", "notes": "Payment record tied to voucher usage."},
+        {"name": "VOUCHER_DATE", "type": "varchar", "notes": "String date; use DATETIME__VOUCHER_DATE for filtering."},
+        {"name": "DATETIME__VOUCHER_DATE", "type": "date", "notes": "Business date of issuance/redemption."},
+        {"name": "VOUCHER_EXPIRYDATE", "type": "varchar", "notes": "Expiry string; DATETIME__VOUCHER_EXPIRYDATE has parsed value."},
+        {"name": "DATETIME__REDEMPTION_DATE", "type": "date", "notes": "When voucher was redeemed (if applicable)."},
+        {"name": "REDEMPTION_LOCATION", "type": "varchar", "notes": "Outlet GUID where voucher was used."},
+        {"name": "VOUCHER_TYPE", "type": "varchar", "notes": "Issued vs redeemed, gift vs discount, etc."},
+        {"name": "VOUCHER_VALUE", "type": "decimal", "notes": "Monetary value associated with the voucher."},
+        {"name": "VOUCHER_MASTER_ID", "type": "bigint", "notes": "Links to APP_4_VOUCHER_MASTER for promotion metadata."},
+        {"name": "IS_API_VOUCHER", "type": "tinyint", "notes": "Flags vouchers originated from partner API integrations."}
+      ]
+    }
+  ]
+}
+
