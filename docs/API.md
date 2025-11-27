@@ -13,6 +13,7 @@ Rebuild critical Xilnex APIs on top of our warehouse so internal systems consume
 1. **Use Xilnex Sync Sales response as reference.**  
    - Inspect JSON payload (sales header, items, payments, outlet info).  
    - Map each field to corresponding Xilnex tables (`APP_4_SALES`, `APP_4_SALESITEM`, etc.).  
+   - **Reference:** `docs/replica_schema.json` contains curated column notes for API development (but replication uses actual schema from `xilnex_full_schema.json`).
 2. **Write SQL JOIN blueprint.**  
    - `SALES_NO` ties sales ↔ items ↔ payments.  
    - `SALE_LOCATION` (`GUID`) joins to `LOCATION_DETAIL`.  

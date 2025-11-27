@@ -20,7 +20,17 @@
 ### Directories (current repo)
 - `archive/legacy_api_pipeline/` – previous star-schema + API-based ETL assets
 - `docs/` – active documentation for 1:1 replica plan (schemas, infra, history)
-- `exports/` – Parquet dumps produced by `scripts/export_and_load_replica.py`
+  - `replica_schema.json` – **API development reference only** (curated columns with notes)
+  - `xilnex_full_schema.json` – **Actual schema used for replication** (full 598-table dump)
+- `exports/` – Parquet dumps produced by `scripts/export_and_load_replica.py` (can be cleaned between runs)
+- `migrations/schema_tables/` – SQL migration files
+  - `000_drop_all_tables.sql` – Drop all replica tables (use before recreating)
+  - `100_create_replica_tables.sql` – Auto-generated from actual Xilnex schema
+  - `110_create_replica_metadata_tables.sql` – ETL tracking tables
+- `scripts/` – ETL automation
+  - `generate_migration_from_schema.py` – Regenerate migration SQL from Xilnex schema
+  - `export_and_load_replica.py` – Main export/load script (uses actual schema)
+  - `run_replica_etl.py` – T-0/T-1 orchestration
 
 ### Monitoring / Ops
 - Windows Task Scheduler (planned) for 2 AM ETL trigger

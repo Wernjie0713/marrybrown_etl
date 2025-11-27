@@ -1,6 +1,11 @@
 import argparse
 import subprocess
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
+
+# Add parent directory to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pyodbc
 

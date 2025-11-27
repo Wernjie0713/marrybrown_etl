@@ -1,16 +1,26 @@
 import argparse
 import json
 import sys
+import psutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
+
+# Add parent directory to path to import config
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pyodbc
 
 import config
 
-SCHEMA_PATH = Path("docs") / "replica_schema.json"
+REPLICA_SCHEMA_PATH = PROJECT_ROOT / "docs" / "replica_schema.json"
+FULL_SCHEMA_PATH = PROJECT_ROOT / "docs" / "xilnex_full_schema.json"
 
 # Tables that support date filtering and the column to use
 DATE_FILTER_COLUMNS = {
@@ -27,10 +37,71 @@ DATE_FILTER_COLUMNS = {
     "APP_4_VOUCHER": "DATETIME__VOUCHER_DATE",
 }
 
+# Compression mapping
+COMPRESSION_MAP = {
+    "snappy": "snappy",
+    "gzip": "gzip",
+    "zstd": "zstd",
+    "none": None,
+    "uncompressed": None,
+}
+
+
+class ConnectionManager:
+    """Context manager for database connections with pooling."""
+    
+    def __init__(self, source_conn=None, target_conn=None):
+        self.source_conn = source_conn
+        self.target_conn = target_conn
+        self._source_created = source_conn is None
+        self._target_created = target_conn is None
+    
+    def __enter__(self):
+        if self._source_created and self.source_conn is None:
+            self.source_conn = get_source_connection()
+        if self._target_created and self.target_conn is None:
+            self.target_conn = get_target_connection()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._source_created and self.source_conn:
+            self.source_conn.close()
+        if self._target_created and self.target_conn:
+            self.target_conn.close()
+
 
 def load_schema() -> Dict[str, dict]:
-    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    return {entry["name"]: entry for entry in data["tables"]}
+    """Load actual table schemas from xilnex_full_schema.json."""
+    # Get table names from replica_schema.json
+    replica_data = json.loads(REPLICA_SCHEMA_PATH.read_text(encoding="utf-8"))
+    table_names = [t["name"] for t in replica_data["tables"]]
+    
+    # Load full Xilnex schema
+    full_schema = json.loads(FULL_SCHEMA_PATH.read_text(encoding="utf-8"))
+    
+    # Extract schemas for our tables
+    result = {}
+    for table_name in table_names:
+        full_table_key = f"COM_5013.{table_name}"
+        if full_table_key not in full_schema:
+            # Try to find it
+            for key in full_schema.keys():
+                if key.endswith(f".{table_name}"):
+                    full_table_key = key
+                    break
+            else:
+                print(f"[WARN] Table {table_name} not found in xilnex_full_schema.json", file=sys.stderr)
+                continue
+        
+        schema_entry = full_schema[full_table_key]
+        # Convert to format expected by rest of code
+        result[table_name] = {
+            "name": table_name,
+            "schema": schema_entry.get("schema", "COM_5013"),
+            "columns": sorted(schema_entry["columns"], key=lambda x: x.get("ordinal_position", 999))
+        }
+    
+    return result
 
 
 def get_source_connection():
@@ -39,7 +110,8 @@ def get_source_connection():
 
 
 def get_target_connection():
-    conn_str = config.build_connection_string(config.TARGET_SQL_CONFIG)
+    # Trust server certificate for local connections
+    conn_str = config.build_connection_string(config.TARGET_SQL_CONFIG, trust_server_cert=True)
     return pyodbc.connect(conn_str)
 
 
@@ -73,39 +145,156 @@ def build_select_statement(
     return query, params
 
 
-def export_table(
-    table_name: str,
-    schema_entry: dict,
-    start_date: Optional[str],
-    end_date: Optional[str],
-    args: argparse.Namespace,
-) -> pd.DataFrame:
-    query, params = build_select_statement(
-        table_name,
-        schema_entry,
-        start_date,
-        end_date,
-        args.full_table,
-    )
-    print(f"\n[EXPORT] {table_name}: running query")
-    conn = get_source_connection()
-    chunks = []
-    total_rows = 0
-    for chunk in pd.read_sql_query(
-        query, conn, params=params if params else None, chunksize=args.chunk_size
-    ):
-        chunks.append(chunk)
-        total_rows += len(chunk)
-        print(f"  fetched {total_rows:,} rows", end="\r", flush=True)
-    conn.close()
-
-    if not chunks:
-        return pd.DataFrame(columns=[col["name"] for col in schema_entry["columns"]])
-
-    df = pd.concat(chunks, ignore_index=True)
-    print(f"  fetched {total_rows:,} rows in total")
-    validate_columns(table_name, schema_entry, df.columns)
+def optimize_dataframe_dtypes(df: pd.DataFrame, first_chunk: bool = False, allow_category: bool = False) -> pd.DataFrame:
+    """Optimize DataFrame dtypes to reduce memory usage.
+    
+    Args:
+        df: DataFrame to optimize
+        first_chunk: Whether this is the first chunk (used for category conversion)
+        allow_category: Whether to allow category dtype conversion (disabled for Parquet writing)
+    """
+    # 1:1 replication requirement: do not alter dtypes (no downcasting/category conversion)
+    # This function remains for interface compatibility but acts as a no-op.
     return df
+
+
+def prepare_data_for_sql(df: pd.DataFrame, schema_entry: dict) -> pd.DataFrame:
+    """Prepare DataFrame for SQL insertion with proper type conversion.
+    
+    Only handles NULL conversion - no data modification for 1:1 replication.
+    Schema adjustments are handled separately via adjust_target_schema().
+    """
+    df = df.copy()
+    columns = [col["name"] for col in schema_entry["columns"]]
+    
+    # Ensure only expected columns exist
+    df = df[[col for col in columns if col in df.columns]]
+    
+    # Replace NaN with None for proper NULL handling
+    df = df.where(pd.notnull(df), None)
+    
+    # No data modification - preserve exact source values for 1:1 replication
+    return df
+
+
+def estimate_optimal_chunk_size(column_count: int, available_memory_mb: int = None) -> int:
+    """Estimate optimal chunk size based on column count and available memory."""
+    if available_memory_mb is None:
+        available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+    
+    # Rough estimate: each row with many columns uses ~1-2KB
+    # Use 10% of available memory for chunk
+    estimated_rows_per_mb = 500  # Conservative estimate
+    target_memory_mb = available_memory_mb * 0.1
+    
+    optimal_size = int(target_memory_mb * estimated_rows_per_mb)
+    
+    # Adjust for column count (more columns = smaller chunks)
+    if column_count > 100:
+        optimal_size = int(optimal_size * (100 / column_count))
+    
+    # Clamp between 10K and 500K
+    return max(10000, min(500000, optimal_size))
+
+
+def write_parquet_incremental(
+    chunks: Iterator[pd.DataFrame],
+    output_path: Path,
+    compression: str = "snappy",
+) -> int:
+    """Write Parquet file incrementally using PyArrow ParquetWriter.
+    
+    Handles schema inference properly by ensuring all object columns are nullable strings,
+    even if first chunk has all NULLs.
+    """
+    total_rows = 0
+    parquet_writer = None
+    schema = None
+    chunk_idx = 0
+    
+    try:
+        for chunk in chunks:
+            if chunk.empty:
+                continue
+            
+            # Optimize chunk (disable category conversion to maintain Parquet schema consistency)
+            chunk = optimize_dataframe_dtypes(chunk, first_chunk=(chunk_idx == 0), allow_category=False)
+            
+            # Fix NULL type inference: Ensure all object columns are treated as nullable strings
+            # This prevents schema mismatch when first chunk has all NULLs but later chunks have values
+            # PyArrow will infer null type if all values are NULL, but we want nullable string
+            for col in chunk.select_dtypes(include=['object']).columns:
+                # Ensure column is object dtype (nullable) - this preserves NULLs
+                # PyArrow will convert object dtype with NULLs to nullable string type
+                if chunk[col].isna().all():
+                    # If all NULLs, ensure it's object dtype so PyArrow infers nullable string
+                    chunk[col] = chunk[col].astype('object')
+            
+            # Convert to PyArrow Table
+            table = pa.Table.from_pandas(chunk, preserve_index=False)
+            
+            # Fix null type inference: If any columns are null type (all NULLs in first chunk),
+            # cast them to nullable string type to prevent schema mismatches
+            if schema is None:
+                # First chunk - fix null types before setting schema
+                fields = []
+                for field in table.schema:
+                    if pa.types.is_null(field.type):
+                        # Convert null type to nullable string
+                        fields.append(pa.field(field.name, pa.string(), nullable=True))
+                    else:
+                        fields.append(field)
+                
+                if fields != list(table.schema):
+                    # Recreate table with fixed schema
+                    schema_dict = {field.name: field.type for field in fields}
+                    table = table.cast(pa.schema(fields), safe=False)
+                
+                schema = table.schema
+                parquet_writer = pq.ParquetWriter(
+                    output_path,
+                    schema,
+                    compression=COMPRESSION_MAP.get(compression, "snappy"),
+                    use_dictionary=True,
+                )
+            else:
+                # Subsequent chunks - unify schemas if they differ
+                if schema != table.schema:
+                    try:
+                        # Try to unify schemas (PyArrow will promote types as needed)
+                        unified_schema = pa.unify_schemas([schema, table.schema])
+                        if unified_schema != schema:
+                            # Schema changed, need to recreate writer
+                            parquet_writer.close()
+                            schema = unified_schema
+                            parquet_writer = pq.ParquetWriter(
+                                output_path,
+                                schema,
+                                compression=COMPRESSION_MAP.get(compression, "snappy"),
+                                use_dictionary=True,
+                            )
+                        # Cast table to unified schema
+                        table = table.cast(schema, safe=False)
+                    except Exception:
+                        # If unification fails, cast table to match existing schema
+                        table = table.cast(schema, safe=False)
+            
+            # Write chunk
+            parquet_writer.write_table(table)
+            total_rows += len(chunk)
+            chunk_idx += 1
+        
+        if parquet_writer:
+            parquet_writer.close()
+    except Exception as e:
+        if parquet_writer:
+            parquet_writer.close()
+        # Clean up partial file on error
+        if output_path.exists():
+            output_path.unlink()
+        raise e
+    
+    return total_rows
 
 
 def validate_columns(table_name: str, schema_entry: dict, actual_columns) -> None:
@@ -124,16 +313,578 @@ def validate_columns(table_name: str, schema_entry: dict, actual_columns) -> Non
         )
 
 
-def write_parquet(
-    table_name: str, df: pd.DataFrame, args: argparse.Namespace, suffix: str
-) -> Path:
-    output_dir = Path(args.output_dir) / table_name.lower()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    file_name = f"{table_name.lower()}_{suffix}.parquet"
-    output_path = output_dir / file_name
-    df.to_parquet(output_path, engine="pyarrow", compression="snappy", index=False)
-    print(f"[EXPORT] {table_name}: wrote {len(df):,} rows to {output_path}")
-    return output_path
+def analyze_data_requirements(parquet_path: Path, schema_entry: dict) -> dict:
+    """Analyze Parquet data to determine actual requirements for schema adjustment.
+    
+    Returns dict with column requirements:
+    - string columns: max_length needed
+    - decimal columns: is_integer flag (to use DECIMAL(38,0) vs DECIMAL(38,20))
+    - integer columns: type needed (INT/BIGINT)
+    
+    Simplified approach: Use maximum DECIMAL sizes (38,0) for integers, (38,20) for decimals.
+    """
+    requirements = {}
+    
+    if not parquet_path.exists() or parquet_path.stat().st_size == 0:
+        return requirements
+    
+    # Read Parquet file - analyze ALL batches, not just a sample
+    parquet_file = pq.ParquetFile(parquet_path)
+    
+    # Process all batches to ensure we catch all values
+    for batch in parquet_file.iter_batches(batch_size=50000):
+        df = batch.to_pandas()
+        if df.empty:
+            continue
+        
+        for col_info in schema_entry["columns"]:
+            col_name = col_info["name"]
+            if col_name not in df.columns:
+                continue
+            
+            col_type = col_info["type"].upper()
+            
+            if col_name not in requirements:
+                requirements[col_name] = {
+                    "type": col_type,
+                    "source_precision": col_info.get("numeric_precision"),
+                    "source_scale": col_info.get("numeric_scale"),
+                    "source_char_len": col_info.get("char_len"),
+                }
+            
+            # Analyze string columns
+            if col_type in ("VARCHAR", "NVARCHAR", "CHAR", "NCHAR"):
+                mask = df[col_name].notna()
+                if mask.any():
+                    str_lengths = df.loc[mask, col_name].astype(str).str.len()
+                    max_len = str_lengths.max()
+                    current_max = requirements[col_name].get("max_length", 0)
+                    requirements[col_name]["max_length"] = max(current_max, max_len)
+            
+            # Analyze DECIMAL/NUMERIC columns
+            elif col_type in ("DECIMAL", "NUMERIC"):
+                mask = df[col_name].notna()
+                if mask.any():
+                    numeric_values = pd.to_numeric(df.loc[mask, col_name], errors='coerce')
+                    valid_values = numeric_values.dropna()
+                    
+                    if not valid_values.empty:
+                        # Simple approach: Check if all values are integers
+                        # If integers -> use DECIMAL(38,0), if decimals -> use DECIMAL(38,20)
+                        all_integers = True
+                        
+                        # Check ALL values to see if they're integers
+                        for val in valid_values:
+                            if not pd.isna(val):
+                                val_str = str(val)
+                                # Check if string representation has non-zero fractional part
+                                if '.' in val_str:
+                                    # Check if fractional part is all zeros
+                                    frac_part = val_str.split('.')[1]
+                                    # Remove trailing zeros and check if anything remains
+                                    if frac_part.rstrip('0'):
+                                        all_integers = False
+                                        break
+                        
+                        # Store whether this column contains only integers
+                        if "is_integer" not in requirements[col_name]:
+                            requirements[col_name]["is_integer"] = all_integers
+                        else:
+                            requirements[col_name]["is_integer"] = requirements[col_name]["is_integer"] and all_integers
+            
+            # Analyze integer columns
+            elif col_type in ("INT", "SMALLINT", "TINYINT"):
+                mask = df[col_name].notna()
+                if mask.any():
+                    numeric_values = pd.to_numeric(df.loc[mask, col_name], errors='coerce')
+                    valid_values = numeric_values.dropna()
+                    
+                    if not valid_values.empty:
+                        max_val = valid_values.max()
+                        min_val = valid_values.min()
+                        
+                        # Determine required type
+                        if max_val > 2147483647 or min_val < -2147483648:
+                            requirements[col_name]["required_type"] = "BIGINT"
+                        elif max_val > 32767 or min_val < -32768:
+                            requirements[col_name]["required_type"] = "INT"
+                        elif max_val > 255 or min_val < 0:
+                            requirements[col_name]["required_type"] = "SMALLINT"
+                        else:
+                            requirements[col_name]["required_type"] = "TINYINT"
+    
+    return requirements
+
+
+def get_target_table_schema(
+    table_name: str,
+    conn_manager: Optional[ConnectionManager] = None,
+    cursor: Optional[pyodbc.Cursor] = None,
+) -> dict:
+    """Get the actual current schema of the target table from SQL Server."""
+    target_table = f"dbo.com_5013_{table_name}"
+    
+    # Use provided cursor/connection or create new
+    if cursor is not None:
+        conn = None
+        close_conn = False
+    elif conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+        cursor = conn.cursor()
+    else:
+        conn = get_target_connection()
+        close_conn = True
+        cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            SELECT 
+                COLUMN_NAME,
+                DATA_TYPE,
+                CHARACTER_MAXIMUM_LENGTH,
+                NUMERIC_PRECISION,
+                NUMERIC_SCALE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = 'dbo' 
+            AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION
+        """, target_table.replace('dbo.', ''))
+        
+        schema = {}
+        for row in cursor.fetchall():
+            col_name, data_type, char_len, num_precision, num_scale = row
+            schema[col_name] = {
+                "type": data_type,
+                "char_len": char_len,
+                "numeric_precision": num_precision,
+                "numeric_scale": num_scale,
+            }
+        
+        return schema
+    finally:
+        if close_conn and conn:
+            conn.close()
+
+
+def adjust_target_schema(
+    table_name: str,
+    schema_entry: dict,
+    parquet_path: Path,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> bool:
+    """Analyze data and adjust target schema to accommodate actual data requirements.
+    
+    Returns True if schema was adjusted, False otherwise.
+    """
+    target_table = f"dbo.com_5013_{table_name}"
+    
+    # Use provided connection or create new
+    if conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+    else:
+        conn = get_target_connection()
+        close_conn = True
+    
+    try:
+        # Analyze data requirements
+        requirements = analyze_data_requirements(parquet_path, schema_entry)
+        
+        if not requirements:
+            return False
+        
+        cursor = conn.cursor()
+        actual_schema = get_target_table_schema(table_name, cursor=cursor)
+        schema_adjusted = False
+        
+        for col_name, req in requirements.items():
+            col_info = next((c for c in schema_entry["columns"] if c["name"] == col_name), None)
+            if not col_info:
+                continue
+            
+            col_type = col_info["type"].upper()
+            actual_col = actual_schema.get(col_name, {})
+            current_precision = actual_col.get("numeric_precision")
+            current_scale = actual_col.get("numeric_scale")
+            current_char_len = actual_col.get("char_len")
+            
+            # Fallback to source schema metadata if target metadata is unavailable
+            if current_precision is None:
+                current_precision = col_info.get("numeric_precision")
+            if current_scale is None:
+                current_scale = col_info.get("numeric_scale")
+            if current_char_len is None:
+                current_char_len = col_info.get("char_len")
+            
+            # Normalize None values for easier comparison
+            if current_precision is None:
+                current_precision = 0
+            if current_scale is None:
+                current_scale = 0
+            if current_char_len is None:
+                current_char_len = 0
+            
+            # Adjust string columns
+            if col_type in ("VARCHAR", "NVARCHAR", "CHAR", "NCHAR"):
+                max_length = req.get("max_length", 0)
+                if max_length > 0:
+                    # If current is MAX, no adjustment needed
+                    if current_char_len == -1:
+                        continue
+                    
+                    # If data exceeds current length, expand it
+                    if max_length > current_char_len:
+                        new_type = f"{col_type}(MAX)" if max_length > 4000 else f"{col_type}({max_length})"
+                        try:
+                            cursor.execute(f"ALTER TABLE {target_table} ALTER COLUMN {col_name} {new_type}")
+                            conn.commit()
+                            print(
+                                f"[SCHEMA] {table_name}.{col_name}: Expanded from {col_type}({current_char_len}) to {new_type} "
+                                f"(data requires {max_length} chars)"
+                            )
+                            schema_adjusted = True
+                        except Exception as e:
+                            print(
+                                f"[WARN] {table_name}.{col_name}: Failed to adjust schema: {e}",
+                                file=sys.stderr
+                            )
+            
+            # Adjust DECIMAL/NUMERIC columns
+            elif col_type in ("DECIMAL", "NUMERIC"):
+                # Keep DECIMAL scale aligned with source schema to avoid fractional truncation.
+                source_scale = (col_info.get("numeric_scale") or 0)
+                is_integer = req.get("is_integer", False)
+                
+                # Only reduce to scale 0 if the source schema is already scale 0.
+                if is_integer and source_scale == 0:
+                    target_type = f"{col_type}(38,0)"
+                    target_scale = 0
+                else:
+                    target_type = f"{col_type}(38,20)"
+                    target_scale = 20
+                
+                if current_precision == 38 and current_scale == target_scale:
+                    continue
+                
+                needs_precision = current_precision < 38
+                needs_scale = current_scale != target_scale
+                
+                if needs_precision or needs_scale:
+                    try:
+                        cursor.execute(f"ALTER TABLE {target_table} ALTER COLUMN {col_name} {target_type}")
+                        conn.commit()
+                        print(
+                            f"[SCHEMA] {table_name}.{col_name}: Expanded from {col_type}({current_precision},{current_scale}) "
+                            f"to {target_type}"
+                        )
+                        schema_adjusted = True
+                    except Exception as e:
+                        print(
+                            f"[WARN] {table_name}.{col_name}: Failed to adjust schema: {e}",
+                            file=sys.stderr
+                        )
+            
+            # Adjust integer columns (promote to larger type if needed)
+            elif col_type in ("INT", "SMALLINT", "TINYINT"):
+                required_type = req.get("required_type")
+                if required_type and required_type != col_type:
+                    # Only promote, never demote
+                    type_hierarchy = {"TINYINT": 1, "SMALLINT": 2, "INT": 3, "BIGINT": 4}
+                    current_level = type_hierarchy.get(col_type, 0)
+                    required_level = type_hierarchy.get(required_type, 0)
+                    
+                    if required_level > current_level:
+                        try:
+                            cursor.execute(f"ALTER TABLE {target_table} ALTER COLUMN {col_name} {required_type}")
+                            conn.commit()
+                            print(
+                                f"[SCHEMA] {table_name}.{col_name}: Promoted from {col_type} to {required_type} "
+                                f"(data exceeds {col_type} range)"
+                            )
+                            schema_adjusted = True
+                        except Exception as e:
+                            print(
+                                f"[WARN] {table_name}.{col_name}: Failed to adjust schema: {e}",
+                                file=sys.stderr
+                            )
+        
+        return schema_adjusted
+    
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def load_via_bulk_insert(
+    table_name: str,
+    schema_entry: dict,
+    parquet_path: Path,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    conn_manager: Optional[ConnectionManager] = None,
+) -> int:
+    """Load data using SQL Server BULK INSERT from Parquet file."""
+    target_table = f"dbo.com_5013_{table_name}"
+    
+    # Use provided connection or create new
+    if conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+    else:
+        conn = get_target_connection()
+        close_conn = True
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Delete existing range if date-filtered
+        delete_existing_range(
+            cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+        )
+        
+        # Convert Windows path to format SQL Server can access
+        # For local SQL Server, use the file path directly
+        parquet_file_path = str(parquet_path).replace('\\', '/')
+        
+        # Try OPENROWSET first (SQL Server 2017+)
+        try:
+            # Get column list
+            columns = [col["name"] for col in schema_entry["columns"]]
+            column_list = ", ".join(columns)
+            
+            # Use OPENROWSET to read Parquet
+            sql = f"""
+            INSERT INTO {target_table} ({column_list})
+            SELECT {column_list}
+            FROM OPENROWSET(
+                BULK '{parquet_file_path}',
+                FORMAT = 'PARQUET'
+            ) AS [parquet_file]
+            """
+            
+            cursor.execute(sql)
+            rows_loaded = cursor.rowcount
+            conn.commit()
+            print(f"[LOAD] {table_name}: loaded {rows_loaded:,} rows via BULK INSERT")
+            return rows_loaded
+        except Exception as e:
+            # Fallback to regular batch loading
+            print(f"[WARN] BULK INSERT failed, falling back to batch loading: {e}", file=sys.stderr)
+            # Read Parquet and load in batches
+            df = pd.read_parquet(parquet_path, engine="pyarrow")
+            return load_in_batches(
+                table_name,
+                schema_entry,
+                df,
+                start_date,
+                end_date,
+                batch_size=100000,
+                commit_interval=100000,
+                conn_manager=conn_manager,
+            )
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def load_from_parquet_streaming(
+    table_name: str,
+    schema_entry: dict,
+    parquet_path: Path,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    batch_size: int = 100000,
+    commit_interval: int = 100000,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> int:
+    """Load from Parquet file in streaming fashion (no full DataFrame in memory)."""
+    # Check if file exists and has data
+    if not parquet_path.exists():
+        print(f"[WARN] {table_name}: Parquet file not found: {parquet_path}")
+        return 0
+    
+    # Check file size (empty Parquet files can still exist)
+    if parquet_path.stat().st_size == 0:
+        print(f"[WARN] {table_name}: Parquet file is empty: {parquet_path}")
+        return 0
+    
+    # Adjust target schema to accommodate actual data requirements (1:1 replication)
+    print(f"[SCHEMA] {table_name}: Analyzing data and adjusting schema if needed...")
+    adjust_target_schema(table_name, schema_entry, parquet_path, conn_manager)
+    
+    # Get the actual target schema after adjustment to verify
+    actual_schema = get_target_table_schema(table_name, conn_manager)
+    
+    target_table = f"dbo.com_5013_{table_name}"
+    columns = [col["name"] for col in schema_entry["columns"]]
+    placeholders = ", ".join(["?"] * len(columns))
+    column_list = ", ".join(columns)
+    
+    # Use provided connection or create new
+    if conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+    else:
+        conn = get_target_connection()
+        close_conn = True
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Delete existing range if date-filtered
+        delete_existing_range(
+            cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+        )
+        
+        cursor.fast_executemany = True
+        total_loaded = 0
+        rows_since_commit = 0
+        
+        # Read Parquet in chunks using PyArrow's iter_batches (pd.read_parquet doesn't support chunksize)
+        parquet_file = pq.ParquetFile(parquet_path)
+        
+        for batch_idx, batch in enumerate(parquet_file.iter_batches(batch_size=batch_size)):
+            # Convert PyArrow batch to pandas DataFrame
+            batch_df = batch.to_pandas()
+            
+            if batch_df.empty:
+                continue
+            
+            # Prepare data for SQL
+            batch_df = prepare_data_for_sql(batch_df, schema_entry)
+            
+            # Validate numeric values before insert (catch issues early)
+            try:
+                batch_data = [tuple(row) for row in batch_df[columns].itertuples(index=False, name=None)]
+            except Exception as e:
+                print(f"[ERROR] {table_name}: Failed to prepare batch {batch_idx}: {e}", file=sys.stderr)
+                raise
+            
+            try:
+                cursor.executemany(
+                    f"INSERT INTO {target_table} ({column_list}) VALUES ({placeholders})",
+                    batch_data,
+                )
+            except Exception as e:
+                # If we get a numeric error, try to identify the problematic column/value
+                error_msg = str(e)
+                if "Numeric value out of range" in error_msg or "Fractional truncation" in error_msg:
+                    print(f"[ERROR] {table_name}: Numeric error in batch {batch_idx}. Analyzing problematic values...", file=sys.stderr)
+                    # Try to identify which column is causing the issue
+                    for col_info in schema_entry["columns"]:
+                        col_name = col_info["name"]
+                        if col_name not in batch_df.columns:
+                            continue
+                        col_type = col_info["type"].upper()
+                        if col_type in ("DECIMAL", "NUMERIC"):
+                            numeric_values = pd.to_numeric(batch_df[col_name], errors='coerce')
+                            valid_values = numeric_values.dropna()
+                            if not valid_values.empty:
+                                max_val = valid_values.max()
+                                min_val = valid_values.min()
+                                print(f"[DEBUG] {col_name}: min={min_val}, max={max_val}, dtype={batch_df[col_name].dtype}", file=sys.stderr)
+                        elif col_type in ("INT", "SMALLINT", "TINYINT", "BIGINT"):
+                            numeric_values = pd.to_numeric(batch_df[col_name], errors='coerce')
+                            valid_values = numeric_values.dropna()
+                            if not valid_values.empty:
+                                max_val = valid_values.max()
+                                min_val = valid_values.min()
+                                print(f"[DEBUG] {col_name} (INT): min={min_val}, max={max_val}, dtype={batch_df[col_name].dtype}", file=sys.stderr)
+                raise
+            
+            total_loaded += len(batch_df)
+            rows_since_commit += len(batch_df)
+            
+            # Commit at intervals
+            if rows_since_commit >= commit_interval:
+                conn.commit()
+                rows_since_commit = 0
+                print(f"  [LOAD] {table_name}: committed {total_loaded:,} rows", end="\r", flush=True)
+        
+        # Final commit
+        conn.commit()
+        print(f"\n[LOAD] {table_name}: loaded {total_loaded:,} rows into {target_table}")
+        
+        return total_loaded
+    except Exception as e:
+        print(f"[ERROR] {table_name}: Failed to load from Parquet: {e}", file=sys.stderr)
+        raise
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def load_in_batches(
+    table_name: str,
+    schema_entry: dict,
+    df: pd.DataFrame,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    batch_size: int = 100000,
+    commit_interval: int = 100000,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> int:
+    """Load DataFrame into target database in batches."""
+    if df.empty:
+        print(f"[LOAD] {table_name}: nothing to load")
+        return 0
+
+    target_table = f"dbo.com_5013_{table_name}"
+    columns = [col["name"] for col in schema_entry["columns"]]
+    placeholders = ", ".join(["?"] * len(columns))
+    column_list = ", ".join(columns)
+    
+    # Prepare data
+    df = prepare_data_for_sql(df, schema_entry)
+    
+    # Use provided connection or create new
+    if conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+    else:
+        conn = get_target_connection()
+        close_conn = True
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Delete existing range if date-filtered
+        delete_existing_range(
+            cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+        )
+        
+        cursor.fast_executemany = True
+        total_loaded = 0
+        rows_since_commit = 0
+        
+        # Process in batches
+        for i in range(0, len(df), batch_size):
+            batch = df.iloc[i:i + batch_size]
+            batch_data = [tuple(row) for row in batch[columns].itertuples(index=False, name=None)]
+            
+            cursor.executemany(
+                f"INSERT INTO {target_table} ({column_list}) VALUES ({placeholders})",
+                batch_data,
+            )
+            
+            total_loaded += len(batch)
+            rows_since_commit += len(batch)
+            
+            # Commit at intervals
+            if rows_since_commit >= commit_interval:
+                conn.commit()
+                rows_since_commit = 0
+                print(f"  [LOAD] {table_name}: committed {total_loaded:,} rows", end="\r", flush=True)
+        
+        # Final commit
+        conn.commit()
+        print(f"\n[LOAD] {table_name}: loaded {total_loaded:,} rows into {target_table}")
+        
+        return total_loaded
+    finally:
+        if close_conn:
+            conn.close()
 
 
 def delete_existing_range(
@@ -158,36 +909,108 @@ def delete_existing_range(
         )
 
 
-def load_into_target(
+def stream_export_and_load(
     table_name: str,
     schema_entry: dict,
-    df: pd.DataFrame,
     start_date: Optional[str],
     end_date: Optional[str],
-) -> int:
-    if df.empty:
-        print(f"[LOAD] {table_name}: nothing to load")
-        return 0
-
-    target_table = f"dbo.com_5013_{table_name}"
-    columns = [col["name"] for col in schema_entry["columns"]]
-    placeholders = ", ".join(["?"] * len(columns))
-    column_list = ", ".join(columns)
-
-    conn = get_target_connection()
-    cursor = conn.cursor()
-    delete_existing_range(
-        cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+    args: argparse.Namespace,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> Tuple[Path, int, int]:
+    """
+    Stream export and load: process chunks one at a time.
+    Returns: (parquet_path, total_rows, rows_loaded)
+    """
+    query, params = build_select_statement(
+        table_name,
+        schema_entry,
+        start_date,
+        end_date,
+        args.full_table,
     )
-    cursor.fast_executemany = True
-    cursor.executemany(
-        f"INSERT INTO {target_table} ({column_list}) VALUES ({placeholders})",
-        df[columns].itertuples(index=False, name=None),
-    )
-    conn.commit()
-    conn.close()
-    print(f"[LOAD] {table_name}: loaded {len(df):,} rows into {target_table}")
-    return len(df)
+    
+    print(f"\n[EXPORT] {table_name}: running query")
+    
+    # Use provided connection or create new
+    if conn_manager and conn_manager.source_conn:
+        source_conn = conn_manager.source_conn
+    else:
+        source_conn = get_source_connection()
+    
+    # Prepare output path
+    output_dir = Path(args.output_dir) / table_name.lower()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    run_suffix = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    file_name = f"{table_name.lower()}_{run_suffix}.parquet"
+    output_path = output_dir / file_name
+    
+    # Stream chunks and write incrementally
+    total_rows = 0
+    first_chunk = True
+    chunks_to_load = []
+    
+    try:
+        chunk_iter = pd.read_sql_query(
+            query, source_conn, params=params if params else None, chunksize=args.chunk_size
+        )
+        
+        def chunk_generator():
+            nonlocal total_rows, first_chunk
+            for chunk in chunk_iter:
+                if chunk.empty:
+                    continue
+                
+                total_rows += len(chunk)
+                print(f"  fetched {total_rows:,} rows", end="\r", flush=True)
+                
+                # Validate columns on first chunk
+                if first_chunk:
+                    validate_columns(table_name, schema_entry, chunk.columns)
+                    first_chunk = False
+                
+                yield chunk
+        
+        # Write Parquet incrementally
+        parquet_rows = write_parquet_incremental(
+            chunk_generator(),
+            output_path,
+            compression=args.compression,
+        )
+        
+        print(f"\n[EXPORT] {table_name}: wrote {parquet_rows:,} rows to {output_path}")
+        
+        # Load to SQL if not skipped
+        rows_loaded = 0
+        if not args.skip_load:
+            if args.use_bulk_insert:
+                # Use BULK INSERT from Parquet (faster but requires file accessible to SQL Server)
+                rows_loaded = load_via_bulk_insert(
+                    table_name,
+                    schema_entry,
+                    output_path,
+                    start_date,
+                    end_date,
+                    conn_manager=conn_manager,
+                )
+            else:
+                # Read Parquet file for loading (streaming, no full DataFrame)
+                print(f"[LOAD] {table_name}: loading into target database")
+                rows_loaded = load_from_parquet_streaming(
+                    table_name,
+                    schema_entry,
+                    output_path,
+                    start_date,
+                    end_date,
+                    batch_size=args.batch_size,
+                    commit_interval=args.commit_interval,
+                    conn_manager=conn_manager,
+                )
+        
+        return output_path, parquet_rows, rows_loaded
+        
+    finally:
+        if not conn_manager or not conn_manager.source_conn:
+            source_conn.close()
 
 
 def run_for_table(
@@ -196,25 +1019,176 @@ def run_for_table(
     args: argparse.Namespace,
     start_date: Optional[str],
     end_date: Optional[str],
-    suffix: str,
+    conn_manager: Optional[ConnectionManager] = None,
 ):
-    df = export_table(table_name, schema_entry, start_date, end_date, args)
-    parquet_path = write_parquet(table_name, df, args, suffix)
-    rows_loaded = 0
-    if not args.skip_load:
-        rows_loaded = load_into_target(table_name, schema_entry, df, start_date, end_date)
-    manifest = {
-        "table": table_name,
-        "rows": len(df),
-        "rows_loaded": rows_loaded,
-        "parquet": str(parquet_path),
-        "start_date": start_date,
-        "end_date": end_date,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-    }
-    manifest_path = parquet_path.with_suffix(".json")
-    manifest_path.write_text(json.dumps(manifest, indent=2))
-    print(f"[INFO] Manifest written to {manifest_path}")
+    """Process a single table using streaming pipeline."""
+    try:
+        parquet_path, total_rows, rows_loaded = stream_export_and_load(
+            table_name,
+            schema_entry,
+            start_date,
+            end_date,
+            args,
+            conn_manager=conn_manager,
+        )
+        
+        manifest = {
+            "table": table_name,
+            "rows": total_rows,
+            "rows_loaded": rows_loaded,
+            "parquet": str(parquet_path),
+            "start_date": start_date,
+            "end_date": end_date,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+        manifest_path = parquet_path.with_suffix(".json")
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        print(f"[INFO] Manifest written to {manifest_path}")
+        
+    except Exception as e:
+        print(f"[ERROR] Table {table_name} failed: {e}", file=sys.stderr)
+        raise
+
+
+def save_checkpoint(
+    table_name: str,
+    job_date: str,
+    rows_processed: int,
+    last_chunk_id: int,
+    status: str,
+    checkpoint_data: dict,
+    conn_manager: Optional[ConnectionManager] = None,
+):
+    """Save progress checkpoint to database."""
+    if conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+    else:
+        conn = get_target_connection()
+        close_conn = True
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            MERGE dbo.etl_replica_progress AS target
+            USING (SELECT ? AS table_name, ? AS job_date) AS source
+            ON target.table_name = source.table_name AND target.job_date = source.job_date
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    rows_processed = ?,
+                    last_chunk_id = ?,
+                    status = ?,
+                    checkpoint_data = ?,
+                    batch_end = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT (table_name, job_date, rows_processed, last_chunk_id, status, checkpoint_data, batch_start)
+                VALUES (?, ?, ?, ?, ?, ?, SYSUTCDATETIME());
+        """, table_name, job_date, rows_processed, last_chunk_id, status, 
+              json.dumps(checkpoint_data), table_name, job_date, rows_processed, 
+              last_chunk_id, status, json.dumps(checkpoint_data))
+        conn.commit()
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def load_checkpoint(
+    table_name: str,
+    job_date: str,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> Optional[dict]:
+    """Load progress checkpoint from database."""
+    if conn_manager and conn_manager.target_conn:
+        conn = conn_manager.target_conn
+        close_conn = False
+    else:
+        conn = get_target_connection()
+        close_conn = True
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT rows_processed, last_chunk_id, status, checkpoint_data
+            FROM dbo.etl_replica_progress
+            WHERE table_name = ? AND job_date = ?
+        """, table_name, job_date)
+        
+        row = cursor.fetchone()
+        if row:
+            return {
+                "rows_processed": row[0] or 0,
+                "last_chunk_id": row[1] or 0,
+                "status": row[2],
+                "checkpoint_data": json.loads(row[3]) if row[3] else {},
+            }
+        return None
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def table_already_loaded(
+    table_name: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    full_table: bool,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> bool:
+    """Check if table was already successfully loaded."""
+    target_table = f"dbo.com_5013_{table_name}"
+    try:
+        if conn_manager and conn_manager.target_conn:
+            conn = conn_manager.target_conn
+            close_conn = False
+        else:
+            conn = get_target_connection()
+            close_conn = True
+        
+        try:
+            cursor = conn.cursor()
+            
+            # Check if table exists
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = ?
+            """, target_table.replace("dbo.", ""))
+            
+            if cursor.fetchone()[0] == 0:
+                return False
+            
+            # Check if table has data
+            if full_table:
+                # For full table, just check if any rows exist
+                cursor.execute(f"SELECT COUNT(*) FROM {target_table}")
+                count = cursor.fetchone()[0]
+                return count > 0
+            else:
+                # For date-filtered, check if data exists for this date range
+                date_column = DATE_FILTER_COLUMNS.get(table_name)
+                if date_column and start_date:
+                    if end_date:
+                        cursor.execute(
+                            f"SELECT COUNT(*) FROM {target_table} WHERE {date_column} >= ? AND {date_column} < ?",
+                            start_date,
+                            end_date,
+                        )
+                    else:
+                        cursor.execute(
+                            f"SELECT COUNT(*) FROM {target_table} WHERE {date_column} = ?",
+                            start_date,
+                        )
+                    count = cursor.fetchone()[0]
+                    return count > 0
+            
+            return False
+        finally:
+            if close_conn:
+                conn.close()
+    except Exception as e:
+        # If check fails, assume not loaded
+        print(f"[WARN] Could not check if {table_name} is loaded: {e}", file=sys.stderr)
+        return False
 
 
 def parse_args() -> argparse.Namespace:
@@ -242,6 +1216,18 @@ def parse_args() -> argparse.Namespace:
         help="Row chunk size for streaming exports (default: %(default)s).",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100000,
+        help="Batch size for SQL loading (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--commit-interval",
+        type=int,
+        default=100000,
+        help="Rows per commit interval (default: %(default)s).",
+    )
+    parser.add_argument(
         "--skip-load",
         action="store_true",
         help="Export only; do not load into SQL Server target.",
@@ -250,6 +1236,43 @@ def parse_args() -> argparse.Namespace:
         "--full-table",
         action="store_true",
         help="Ignore date filters and export the entire table.",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip tables that have already been loaded (checks target database).",
+    )
+    parser.add_argument(
+        "--compression",
+        choices=["snappy", "gzip", "zstd", "none", "uncompressed"],
+        default="snappy",
+        help="Parquet compression algorithm (default: snappy).",
+    )
+    parser.add_argument(
+        "--auto-chunk-size",
+        action="store_true",
+        help="Auto-adjust chunk size based on available memory and column count.",
+    )
+    parser.add_argument(
+        "--use-bulk-insert",
+        action="store_true",
+        help="Use SQL Server BULK INSERT for faster loading (requires Parquet file accessible to SQL Server).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from last checkpoint if available.",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Process multiple tables in parallel.",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=2,
+        help="Maximum number of parallel workers (default: %(default)s).",
     )
     return parser.parse_args()
 
@@ -263,25 +1286,92 @@ def main():
     else:
         tables = list(schema.keys())
 
+    # Filter tables based on --full-table flag
+    if args.full_table:
+        # Only process reference tables (tables without date columns)
+        reference_tables = [t for t in tables if t not in DATE_FILTER_COLUMNS]
+        date_based_tables = [t for t in tables if t in DATE_FILTER_COLUMNS]
+        
+        if date_based_tables:
+            print(f"[INFO] --full-table flag used. Skipping date-based tables: {', '.join(date_based_tables)}")
+            print(f"[INFO] Use date ranges (--start-date/--end-date) for date-based tables instead.")
+            print()
+        
+        if not reference_tables:
+            print("[ERROR] No reference tables to process with --full-table flag.")
+            print("[INFO] Reference tables (no date columns):", ", ".join([t for t in schema.keys() if t not in DATE_FILTER_COLUMNS]))
+            return
+        
+        tables = reference_tables
+        print(f"[INFO] Processing {len(tables)} reference table(s) with --full-table: {', '.join(tables)}")
+        print()
+
     start_date = args.start_date
     end_date = args.end_date
     if start_date and not end_date:
         # default end date to next day
         end_date = (datetime.fromisoformat(start_date) + timedelta(days=1)).date().isoformat()
 
-    run_suffix = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    for table in tables:
-        entry = schema.get(table)
-        if not entry:
-            print(f"[WARN] Table {table} not found in replica_schema.json, skipping", file=sys.stderr)
-            continue
-        try:
-            run_for_table(table, entry, args, start_date, end_date, run_suffix)
-        except Exception as exc:  # pylint: disable=broad-except
-            print(f"[ERROR] Table {table} failed: {exc}", file=sys.stderr)
+    # Auto-adjust chunk size if requested
+    if args.auto_chunk_size and tables:
+        first_table = tables[0]
+        if first_table in schema:
+            column_count = len(schema[first_table]["columns"])
+            optimal_size = estimate_optimal_chunk_size(column_count)
+            if optimal_size != args.chunk_size:
+                print(f"[INFO] Auto-adjusted chunk size to {optimal_size:,} based on {column_count} columns")
+                args.chunk_size = optimal_size
+
+    # Process tables
+    if args.parallel and len(tables) > 1:
+        # Parallel processing
+        with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
+            futures = {}
+            for table in tables:
+                entry = schema.get(table)
+                if not entry:
+                    print(f"[WARN] Table {table} not found in schema, skipping", file=sys.stderr)
+                    continue
+                
+                # Skip logic
+                if args.skip_existing and not args.skip_load:
+                    if table_already_loaded(table, start_date, end_date, args.full_table):
+                        print(f"[SKIP] Table {table} already loaded, skipping")
+                        continue
+                
+                # Submit task
+                future = executor.submit(
+                    run_for_table, table, entry, args, start_date, end_date, None
+                )
+                futures[future] = table
+            
+            # Wait for completion
+            for future in as_completed(futures):
+                table = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f"[ERROR] Table {table} failed: {exc}", file=sys.stderr)
+    else:
+        # Sequential processing with connection reuse
+        with ConnectionManager() as conn_manager:
+            for table in tables:
+                entry = schema.get(table)
+                if not entry:
+                    print(f"[WARN] Table {table} not found in schema, skipping", file=sys.stderr)
+                    continue
+                
+                # Skip logic
+                if args.skip_existing and not args.skip_load:
+                    if table_already_loaded(table, start_date, end_date, args.full_table, conn_manager):
+                        print(f"[SKIP] Table {table} already loaded, skipping")
+                        continue
+                
+                try:
+                    run_for_table(table, entry, args, start_date, end_date, conn_manager)
+                except Exception as exc:  # pylint: disable=broad-except
+                    print(f"[ERROR] Table {table} failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
     main()
-
-

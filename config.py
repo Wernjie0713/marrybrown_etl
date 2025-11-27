@@ -22,10 +22,23 @@ TARGET_SQL_CONFIG = {
 }
 
 
-def build_connection_string(config_dict: dict, timeout: int = 30) -> str:
+def build_connection_string(config_dict: dict, timeout: int = 30, trust_server_cert: bool = None) -> str:
     """
     Helper to build a SQL Server ODBC connection string.
+    
+    Args:
+        config_dict: Database configuration dictionary
+        timeout: Connection timeout in seconds
+        trust_server_cert: Whether to trust server certificate. 
+                          If None, defaults to True for localhost, False for Azure
     """
+    # Auto-detect if localhost (for SSL certificate trust)
+    if trust_server_cert is None:
+        server = config_dict.get('server', '').lower()
+        trust_server_cert = 'localhost' in server or '127.0.0.1' in server or '.' not in server
+    
+    trust_cert = "yes" if trust_server_cert else "no"
+    
     return (
         f"DRIVER={config_dict['driver']};"
         f"SERVER={config_dict['server']};"
@@ -33,7 +46,7 @@ def build_connection_string(config_dict: dict, timeout: int = 30) -> str:
         f"UID={config_dict['username']};"
         f"PWD={config_dict['password']};"
         "Encrypt=yes;"
-        "TrustServerCertificate=no;"
+        f"TrustServerCertificate={trust_cert};"
         f"Connection Timeout={timeout};"
     )
 
