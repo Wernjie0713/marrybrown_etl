@@ -12,6 +12,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -162,7 +163,7 @@ def prepare_data_for_sql(df: pd.DataFrame, schema_entry: dict) -> pd.DataFrame:
     """Prepare DataFrame for SQL insertion with proper type conversion.
     
     Only handles NULL conversion - no data modification for 1:1 replication.
-    Schema adjustments are handled separately via adjust_target_schema().
+    Schema adjustments rely on migrations (no runtime ALTER TABLE).
     """
     df = df.copy()
     columns = [col["name"] for col in schema_entry["columns"]]
@@ -170,8 +171,11 @@ def prepare_data_for_sql(df: pd.DataFrame, schema_entry: dict) -> pd.DataFrame:
     # Ensure only expected columns exist
     df = df[[col for col in columns if col in df.columns]]
     
+    # Cast to object so NaN can become None (otherwise floats keep NaN)
+    df = df.astype(object)
+    
     # Replace NaN with None for proper NULL handling
-    df = df.where(pd.notnull(df), None)
+    df = df.replace({np.nan: None})
     
     # No data modification - preserve exact source values for 1:1 replication
     return df
@@ -467,153 +471,6 @@ def get_target_table_schema(
             conn.close()
 
 
-def adjust_target_schema(
-    table_name: str,
-    schema_entry: dict,
-    parquet_path: Path,
-    conn_manager: Optional[ConnectionManager] = None,
-) -> bool:
-    """Analyze data and adjust target schema to accommodate actual data requirements.
-    
-    Returns True if schema was adjusted, False otherwise.
-    """
-    target_table = f"dbo.com_5013_{table_name}"
-    
-    # Use provided connection or create new
-    if conn_manager and conn_manager.target_conn:
-        conn = conn_manager.target_conn
-        close_conn = False
-    else:
-        conn = get_target_connection()
-        close_conn = True
-    
-    try:
-        # Analyze data requirements
-        requirements = analyze_data_requirements(parquet_path, schema_entry)
-        
-        if not requirements:
-            return False
-        
-        cursor = conn.cursor()
-        actual_schema = get_target_table_schema(table_name, cursor=cursor)
-        schema_adjusted = False
-        
-        for col_name, req in requirements.items():
-            col_info = next((c for c in schema_entry["columns"] if c["name"] == col_name), None)
-            if not col_info:
-                continue
-            
-            col_type = col_info["type"].upper()
-            actual_col = actual_schema.get(col_name, {})
-            current_precision = actual_col.get("numeric_precision")
-            current_scale = actual_col.get("numeric_scale")
-            current_char_len = actual_col.get("char_len")
-            
-            # Fallback to source schema metadata if target metadata is unavailable
-            if current_precision is None:
-                current_precision = col_info.get("numeric_precision")
-            if current_scale is None:
-                current_scale = col_info.get("numeric_scale")
-            if current_char_len is None:
-                current_char_len = col_info.get("char_len")
-            
-            # Normalize None values for easier comparison
-            if current_precision is None:
-                current_precision = 0
-            if current_scale is None:
-                current_scale = 0
-            if current_char_len is None:
-                current_char_len = 0
-            
-            # Adjust string columns
-            if col_type in ("VARCHAR", "NVARCHAR", "CHAR", "NCHAR"):
-                max_length = req.get("max_length", 0)
-                if max_length > 0:
-                    # If current is MAX, no adjustment needed
-                    if current_char_len == -1:
-                        continue
-                    
-                    # If data exceeds current length, expand it
-                    if max_length > current_char_len:
-                        new_type = f"{col_type}(MAX)" if max_length > 4000 else f"{col_type}({max_length})"
-                        try:
-                            cursor.execute(f"ALTER TABLE {target_table} ALTER COLUMN {col_name} {new_type}")
-                            conn.commit()
-                            print(
-                                f"[SCHEMA] {table_name}.{col_name}: Expanded from {col_type}({current_char_len}) to {new_type} "
-                                f"(data requires {max_length} chars)"
-                            )
-                            schema_adjusted = True
-                        except Exception as e:
-                            print(
-                                f"[WARN] {table_name}.{col_name}: Failed to adjust schema: {e}",
-                                file=sys.stderr
-                            )
-            
-            # Adjust DECIMAL/NUMERIC columns
-            elif col_type in ("DECIMAL", "NUMERIC"):
-                # Keep DECIMAL scale aligned with source schema to avoid fractional truncation.
-                source_scale = (col_info.get("numeric_scale") or 0)
-                is_integer = req.get("is_integer", False)
-                
-                # Only reduce to scale 0 if the source schema is already scale 0.
-                if is_integer and source_scale == 0:
-                    target_type = f"{col_type}(38,0)"
-                    target_scale = 0
-                else:
-                    target_type = f"{col_type}(38,20)"
-                    target_scale = 20
-                
-                if current_precision == 38 and current_scale == target_scale:
-                    continue
-                
-                needs_precision = current_precision < 38
-                needs_scale = current_scale != target_scale
-                
-                if needs_precision or needs_scale:
-                    try:
-                        cursor.execute(f"ALTER TABLE {target_table} ALTER COLUMN {col_name} {target_type}")
-                        conn.commit()
-                        print(
-                            f"[SCHEMA] {table_name}.{col_name}: Expanded from {col_type}({current_precision},{current_scale}) "
-                            f"to {target_type}"
-                        )
-                        schema_adjusted = True
-                    except Exception as e:
-                        print(
-                            f"[WARN] {table_name}.{col_name}: Failed to adjust schema: {e}",
-                            file=sys.stderr
-                        )
-            
-            # Adjust integer columns (promote to larger type if needed)
-            elif col_type in ("INT", "SMALLINT", "TINYINT"):
-                required_type = req.get("required_type")
-                if required_type and required_type != col_type:
-                    # Only promote, never demote
-                    type_hierarchy = {"TINYINT": 1, "SMALLINT": 2, "INT": 3, "BIGINT": 4}
-                    current_level = type_hierarchy.get(col_type, 0)
-                    required_level = type_hierarchy.get(required_type, 0)
-                    
-                    if required_level > current_level:
-                        try:
-                            cursor.execute(f"ALTER TABLE {target_table} ALTER COLUMN {col_name} {required_type}")
-                            conn.commit()
-                            print(
-                                f"[SCHEMA] {table_name}.{col_name}: Promoted from {col_type} to {required_type} "
-                                f"(data exceeds {col_type} range)"
-                            )
-                            schema_adjusted = True
-                        except Exception as e:
-                            print(
-                                f"[WARN] {table_name}.{col_name}: Failed to adjust schema: {e}",
-                                file=sys.stderr
-                            )
-        
-        return schema_adjusted
-    
-    finally:
-        if close_conn:
-            conn.close()
 
 
 def load_via_bulk_insert(
@@ -708,13 +565,6 @@ def load_from_parquet_streaming(
     if parquet_path.stat().st_size == 0:
         print(f"[WARN] {table_name}: Parquet file is empty: {parquet_path}")
         return 0
-    
-    # Adjust target schema to accommodate actual data requirements (1:1 replication)
-    print(f"[SCHEMA] {table_name}: Analyzing data and adjusting schema if needed...")
-    adjust_target_schema(table_name, schema_entry, parquet_path, conn_manager)
-    
-    # Get the actual target schema after adjustment to verify
-    actual_schema = get_target_table_schema(table_name, conn_manager)
     
     target_table = f"dbo.com_5013_{table_name}"
     columns = [col["name"] for col in schema_entry["columns"]]
