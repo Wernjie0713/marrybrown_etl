@@ -45,3 +45,20 @@ python run_replica_etl.py --check-fixes --date 2025-11-25
 - Create views that convert varchar dates to DATETIME for API consumption.
 - Track load stats + data quality metrics in `dimension_refresh_audit`.
 
+### Implementation Notes
+- Run the schema migrations under `migrations/schema_tables/100_create_replica_tables.sql` and `110_create_replica_metadata_tables.sql` against `MarryBrown_DW` (use `.env.local` credentials with `scripts/run_migration.py`).
+- `scripts/export_and_load_replica.py` performs the heavy lifting: it reads table/column definitions from `docs/replica_schema.json`, exports each table to Snappy Parquet, validates columns, writes a manifest, and inserts into the replica tables. Example:
+  ```bash
+  python scripts/export_and_load_replica.py \
+    --start-date 2024-01-01 \
+    --end-date 2024-01-02 \
+    --table APP_4_SALES \
+    --table APP_4_SALESITEM
+  ```
+- `scripts/run_replica_etl.py` orchestrates the nightly job. It runs the T-0 export/load, optionally replays T-1, and records outcomes in `replica_run_history`.
+  ```bash
+  # run yesterday’s load plus T-1 fix check
+  python scripts/run_replica_etl.py --date 2024-11-25
+  ```
+- All Parquet exports live under `exports/<table>/` by default. Each run also writes a JSON manifest (row counts, file path, timestamps) next to the Parquet file for auditing.
+

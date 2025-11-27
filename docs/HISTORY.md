@@ -6,6 +6,7 @@
 | Nov 2025 | Switched to **1:1 replica** plan | API limitations (sequential, 1000-limit, no date range) made historical extraction impractical; business needs data ownership ASAP |
 | Nov 2025 | Archived legacy assets | `api_etl/`, direct DB loaders, migrations, docs moved to `archive/legacy_api_pipeline/` for reference |
 | Nov 2025 | Created `/docs` knowledge base | CLAUDE summary + Markdown briefs (Plan, ETL, API, Infra, History) to keep LLM context current |
+| Nov 2025 | Bootstrapped replica ETL tooling | Added replica migrations + new scripts (`export_and_load_replica.py`, `run_replica_etl.py`) leveraging bulk-export + Parquet load workflow |
 
 ### Outstanding Ideas (Future Phase Suggestions)
 - Reintroduce star schema once replica proves value.

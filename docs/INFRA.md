@@ -19,11 +19,11 @@
 
 ### Directories (current repo)
 - `archive/legacy_api_pipeline/` – previous star-schema + API-based ETL assets
-- `docs/` – active documentation for 1:1 replica plan
-- `data validation/` – JSON exports + comparison scripts
+- `docs/` – active documentation for 1:1 replica plan (schemas, infra, history)
+- `exports/` – Parquet dumps produced by `scripts/export_and_load_replica.py`
 
 ### Monitoring / Ops
 - Windows Task Scheduler (planned) for 2 AM ETL trigger
-- `etl_progress` + planned run logs capture success/failure + record counts
-- Manual rerun script to be placed under `scripts/` once new pipeline is coded
+- `etl_replica_progress` + `replica_run_history` tables capture per-table metrics and run summaries
+- `scripts/run_replica_etl.py` handles T‑0/T‑1 orchestration; use `.env.local` for local dry runs
 
