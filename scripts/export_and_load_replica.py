@@ -67,7 +67,6 @@ DATE_FILTER_COLUMNS = {
     "APP_4_SALESCREDITNOTEITEM": "DATETIMEUTC_BUSINESS_DATE",
     "APP_4_SALESDEBITNOTE": "DATETIMEUTC_BUSINESS_DATE",
     "APP_4_SALESDEBITNOTEITEM": "DATETIMEUTC_BUSINESS_DATE",
-    "APP_4_SALESDELIVERY": "DATETIME__SALES_DATE",
     "APP_4_EPAYMENTLOG": "TRANSACTIONDATETIME",
     "APP_4_VOUCHER": "DATETIME__VOUCHER_DATE",
 }
@@ -1339,6 +1338,26 @@ def main():
     if start_date and not end_date:
         # default end date to next day
         end_date = (datetime.fromisoformat(start_date) + timedelta(days=1)).date().isoformat()
+
+    # Filter tables based on date range (if provided without --full-table)
+    if start_date and not args.full_table:
+        # When date ranges are provided, only process date-based tables
+        date_based_tables = [t for t in tables if t in DATE_FILTER_COLUMNS]
+        reference_tables = [t for t in tables if t not in DATE_FILTER_COLUMNS]
+        
+        if reference_tables:
+            print(f"[INFO] Date range provided. Skipping reference tables (no date columns): {', '.join(reference_tables)}")
+            print(f"[INFO] Use --full-table flag to process reference tables.")
+            print()
+        
+        if not date_based_tables:
+            print("[ERROR] No date-based tables to process with date range.")
+            print("[INFO] Date-based tables:", ", ".join([t for t in schema.keys() if t in DATE_FILTER_COLUMNS]))
+            return
+        
+        tables = date_based_tables
+        print(f"[INFO] Processing {len(tables)} date-based table(s) with date range {start_date} to {end_date}: {', '.join(tables)}")
+        print()
 
     # Auto-adjust chunk size if requested
     if args.auto_chunk_size and tables:
