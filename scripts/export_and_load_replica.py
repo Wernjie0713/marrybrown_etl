@@ -4,7 +4,7 @@ import sys
 import psutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -22,6 +22,40 @@ import config
 
 REPLICA_SCHEMA_PATH = PROJECT_ROOT / "docs" / "replica_schema.json"
 FULL_SCHEMA_PATH = PROJECT_ROOT / "docs" / "xilnex_full_schema.json"
+
+# SQL Server DATETIME range limits
+DATETIME_MIN = datetime(1753, 1, 1, 0, 0, 0)
+DATETIME_MAX = datetime(9999, 12, 31, 23, 59, 59)
+
+
+def round_to_datetime_precision(dt: datetime) -> datetime:
+    """
+    Round datetime to SQL Server DATETIME precision.
+    
+    DATETIME has precision of 1/300 second (approximately 3.33ms).
+    This function rounds microseconds to the nearest 1/300 second increment.
+    
+    Example:
+    - 123456 microseconds → rounds to nearest 3333 microsecond increment
+    - Result: datetime with microseconds rounded to valid DATETIME precision
+    """
+    if dt.microsecond == 0:
+        return dt
+    
+    # DATETIME precision: 1/300 second = 3333.33... microseconds
+    # Round to nearest 3333 microsecond increment
+    increment = 1000000 / 300  # Approximately 3333.33 microseconds
+    rounded_microseconds = round(dt.microsecond / increment) * increment
+    
+    # Ensure we don't exceed 999999 microseconds
+    if rounded_microseconds >= 1000000:
+        # Round up to next second, reset microseconds to 0
+        return dt.replace(microsecond=0) + timedelta(seconds=1)
+    
+    # Round to integer microseconds
+    rounded_microseconds = int(rounded_microseconds)
+    
+    return dt.replace(microsecond=rounded_microseconds)
 
 # Tables that support date filtering and the column to use
 DATE_FILTER_COLUMNS = {
@@ -160,25 +194,105 @@ def optimize_dataframe_dtypes(df: pd.DataFrame, first_chunk: bool = False, allow
 
 
 def prepare_data_for_sql(df: pd.DataFrame, schema_entry: dict) -> pd.DataFrame:
-    """Prepare DataFrame for SQL insertion with proper type conversion.
-    
-    Only handles NULL conversion - no data modification for 1:1 replication.
-    Schema adjustments rely on migrations (no runtime ALTER TABLE).
-    """
-    df = df.copy()
+    """Prepare DataFrame for SQL insertion with robust type conversion."""
     columns = [col["name"] for col in schema_entry["columns"]]
+    df = df[[col for col in columns if col in df.columns]].copy()
     
-    # Ensure only expected columns exist
-    df = df[[col for col in columns if col in df.columns]]
+    column_type_map = {col["name"]: col.get("type", "").lower() for col in schema_entry["columns"]}
+    placeholder_count = {}
     
-    # Cast to object so NaN can become None (otherwise floats keep NaN)
+    for col_name in df.columns:
+        if col_name not in column_type_map:
+            continue
+        
+        col_type = column_type_map[col_name]
+        if col_type in ("datetime", "date"):
+            def convert_datetime_value(val):
+                if val is None:
+                    return None
+                if isinstance(val, (float, int)) and pd.isna(val):
+                    return None
+                
+                dt = None
+                if isinstance(val, (datetime, pd.Timestamp)):
+                    if pd.isna(val):
+                        return None
+                    dt = val.to_pydatetime() if isinstance(val, pd.Timestamp) else val
+                elif isinstance(val, date):
+                    dt = datetime.combine(val, datetime.min.time())
+                elif isinstance(val, str):
+                    s_val = val.strip()
+                    if not s_val:
+                        return None
+                    try:
+                        if len(s_val) == 19 and s_val[10] == " ":
+                            dt = datetime.strptime(s_val, "%Y-%m-%d %H:%M:%S")
+                        elif len(s_val) == 10 and "-" in s_val:
+                            dt = datetime.strptime(s_val, "%Y-%m-%d")
+                        else:
+                            parsed = pd.to_datetime(s_val)
+                            if pd.isna(parsed):
+                                return None
+                            dt = parsed.to_pydatetime()
+                    except (ValueError, TypeError):
+                        return None
+                
+                if dt is not None:
+                    if dt < DATETIME_MIN or dt > DATETIME_MAX:
+                        placeholder_count[col_name] = placeholder_count.get(col_name, 0) + 1
+                        return None
+                    if col_type == "date":
+                        return dt.date()
+                    return round_to_datetime_precision(dt)
+                
+                return None
+            
+            df[col_name] = df[col_name].apply(convert_datetime_value)
+            
+            if col_name in placeholder_count:
+                print(
+                    f"[WARN] {col_name}: Converted {placeholder_count[col_name]} placeholder date(s) "
+                    f"(out of DATETIME range {DATETIME_MIN.date()} to {DATETIME_MAX.date()}) to NULL"
+                )
+    
     df = df.astype(object)
+    df = df.where(pd.notnull(df), None)
     
-    # Replace NaN with None for proper NULL handling
-    df = df.replace({np.nan: None})
+    def sanitize_and_convert(val):
+        if val is None:
+            return None
+        if hasattr(val, "item"):
+            val = val.item()
+        if isinstance(val, float) and (val != val):
+            return None
+        return val
     
-    # No data modification - preserve exact source values for 1:1 replication
+    for col_name in df.columns:
+        df[col_name] = df[col_name].apply(sanitize_and_convert)
+
+    # Final sweep: ensure no pandas NA/NaT survived the sanitize pass
+    df = df.where(pd.notnull(df), None)
+
     return df
+
+
+def coerce_python_value(val):
+    """Convert numpy/pandas scalar types to native Python types, mapping NaN/NaT to None."""
+    if val is None or val is pd.NaT:
+        return None
+    if hasattr(val, "item"):
+        try:
+            val = val.item()
+        except Exception:
+            pass
+    if isinstance(val, float) and pd.isna(val):
+        return None
+    return val
+
+
+def build_row_tuple(row_iterable):
+    """Build a tuple ready for pyodbc executemany, ensuring only native Python types."""
+    return tuple(coerce_python_value(v) for v in row_iterable)
 
 
 def estimate_optimal_chunk_size(column_count: int, available_memory_mb: int = None) -> int:
@@ -604,9 +718,45 @@ def load_from_parquet_streaming(
             # Prepare data for SQL
             batch_df = prepare_data_for_sql(batch_df, schema_entry)
             
+            # Pre-insert validation: convert any remaining NaN/NaT to NULL (None)
+            # Log conversions for visibility
+            for col_name in batch_df.columns:
+                # Check each value for NaN/NaT using same logic as conversion function
+                for idx, val in enumerate(batch_df[col_name]):
+                    if val is None:
+                        continue
+                    
+                    # Check for NaN/NaT FIRST using pandas (same as conversion function)
+                    try:
+                        if pd.isna(val):
+                            batch_df.iat[idx, batch_df.columns.get_loc(col_name)] = None
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                    
+                    # Explicit check for float NaN (fallback)
+                    if isinstance(val, (float, np.floating)):
+                        try:
+                            if np.isnan(val):
+                                batch_df.iat[idx, batch_df.columns.get_loc(col_name)] = None
+                                continue
+                        except (TypeError, ValueError):
+                            pass
+                        if isinstance(val, float) and (val != val):
+                            batch_df.iat[idx, batch_df.columns.get_loc(col_name)] = None
+                            continue
+                    
+                    # Explicit check for NaT
+                    if val is pd.NaT:
+                        batch_df.iat[idx, batch_df.columns.get_loc(col_name)] = None
+                        continue
+            
             # Validate numeric values before insert (catch issues early)
             try:
-                batch_data = [tuple(row) for row in batch_df[columns].itertuples(index=False, name=None)]
+                batch_data = [
+                    build_row_tuple(row)
+                    for row in batch_df[columns].itertuples(index=False, name=None)
+                ]
             except Exception as e:
                 print(f"[ERROR] {table_name}: Failed to prepare batch {batch_idx}: {e}", file=sys.stderr)
                 raise
@@ -688,6 +838,31 @@ def load_in_batches(
     # Prepare data
     df = prepare_data_for_sql(df, schema_entry)
     
+    # Pre-insert validation: convert any remaining NaN/NaT to NULL (None)
+    for col_name in df.columns:
+        for idx, val in enumerate(df[col_name]):
+            if val is None:
+                continue
+            try:
+                if pd.isna(val):
+                    df.iat[idx, df.columns.get_loc(col_name)] = None
+                    continue
+            except (TypeError, ValueError):
+                pass
+            if isinstance(val, (float, np.floating)):
+                try:
+                    if np.isnan(val):
+                        df.iat[idx, df.columns.get_loc(col_name)] = None
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                if isinstance(val, float) and (val != val):
+                    df.iat[idx, df.columns.get_loc(col_name)] = None
+                    continue
+            if val is pd.NaT:
+                df.iat[idx, df.columns.get_loc(col_name)] = None
+                continue
+    
     # Use provided connection or create new
     if conn_manager and conn_manager.target_conn:
         conn = conn_manager.target_conn
@@ -711,7 +886,10 @@ def load_in_batches(
         # Process in batches
         for i in range(0, len(df), batch_size):
             batch = df.iloc[i:i + batch_size]
-            batch_data = [tuple(row) for row in batch[columns].itertuples(index=False, name=None)]
+            batch_data = [
+                build_row_tuple(row)
+                for row in batch[columns].itertuples(index=False, name=None)
+            ]
             
             cursor.executemany(
                 f"INSERT INTO {target_table} ({column_list}) VALUES ({placeholders})",
