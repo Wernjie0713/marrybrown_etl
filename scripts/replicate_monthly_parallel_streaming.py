@@ -66,6 +66,14 @@ def is_connection_lost_error(error: Exception) -> bool:
     return any(token in message for token in transient_tokens)
 
 
+def format_duration(seconds: float) -> str:
+    """Format duration in seconds or mXs style."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(seconds, 60)
+    return f"{int(minutes)}m{int(secs)}s"
+
+
 def generate_month_ranges(start_date: str, end_date: str) -> List[Tuple[str, str, str]]:
     """
     Generate list of (month_key, start, end) tuples for each month in range.
@@ -97,6 +105,65 @@ def generate_month_ranges(start_date: str, end_date: str) -> List[Tuple[str, str
 def get_checkpoint_path(table_name: str, output_dir: Path) -> Path:
     """Get path to checkpoint file for this table."""
     return output_dir / f"{table_name.lower()}_monthly_checkpoint.json"
+
+
+def get_nonclustered_indexes(cursor: pyodbc.Cursor, target_table: str) -> List[str]:
+    """Return nonclustered index names (not disabled) for a given table."""
+    try:
+        if "." in target_table:
+            schema_name, table_only = target_table.split(".", 1)
+        else:
+            schema_name, table_only = "dbo", target_table
+
+        cursor.execute(
+            """
+            SELECT i.name
+            FROM sys.indexes i
+            JOIN sys.objects o ON i.object_id = o.object_id
+            JOIN sys.schemas s ON o.schema_id = s.schema_id
+            WHERE s.name = ? AND o.name = ? AND i.type_desc = 'NONCLUSTERED' AND i.is_disabled = 0
+            """,
+            schema_name,
+            table_only,
+        )
+        return [row[0] for row in cursor.fetchall()]
+    except Exception as exc:
+        print(f"[WARN] Could not list indexes for {target_table}: {exc}", file=sys.stderr)
+        return []
+
+
+def disable_nonclustered_indexes(cursor: pyodbc.Cursor, target_table: str) -> List[str]:
+    """Disable nonclustered indexes; return names disabled. Swallows errors and returns empty list on failure."""
+    indexes = get_nonclustered_indexes(cursor, target_table)
+    if not indexes:
+        return []
+    disabled = []
+    for idx in indexes:
+        try:
+            cursor.execute(f"ALTER INDEX [{idx}] ON {target_table} DISABLE")
+            disabled.append(idx)
+        except Exception as exc:
+            print(f"[WARN] Could not disable index {idx} on {target_table}: {exc}", file=sys.stderr)
+    try:
+        cursor.connection.commit()
+    except Exception as exc:
+        print(f"[WARN] Commit after disabling indexes on {target_table} failed: {exc}", file=sys.stderr)
+    return disabled
+
+
+def rebuild_indexes(cursor: pyodbc.Cursor, target_table: str, indexes: List[str]) -> None:
+    """Rebuild the provided indexes; swallows errors to avoid failing the load."""
+    if not indexes:
+        return
+    for idx in indexes:
+        try:
+            cursor.execute(f"ALTER INDEX [{idx}] ON {target_table} REBUILD")
+        except Exception as exc:
+            print(f"[WARN] Could not rebuild index {idx} on {target_table}: {exc}", file=sys.stderr)
+    try:
+        cursor.connection.commit()
+    except Exception as exc:
+        print(f"[WARN] Commit after rebuilding indexes on {target_table} failed: {exc}", file=sys.stderr)
 
 
 def load_checkpoint(table_name: str, output_dir: Path) -> Dict:
@@ -158,31 +225,49 @@ def stream_month_to_target(
     columns = [col["name"] for col in schema_entry["columns"]]
     placeholders = ", ".join(["?"] * len(columns))
     column_list = ", ".join(columns)
-    insert_sql = f"INSERT INTO dbo.com_5013_{table_name} ({column_list}) VALUES ({placeholders})"
+    target_table = f"dbo.com_5013_{table_name}"
+    insert_sql = f"INSERT INTO {target_table} WITH (TABLOCK) ({column_list}) VALUES ({placeholders})"
 
     attempt = 1
     while attempt <= max_retries:
         source_conn = None
         target_conn = None
+        cursor = None
+        disabled_indexes: List[str] = []
+        delete_time = disable_time = insert_time = rebuild_time = 0.0
+        total_start = time.perf_counter()
         try:
             source_conn = get_source_connection()
             target_conn = get_target_connection()
             cursor = target_conn.cursor()
             cursor.fast_executemany = True
 
+            delete_start = time.perf_counter()
             delete_existing_range(
                 cursor,
-                f"dbo.com_5013_{table_name}",
+                target_table,
                 DATE_FILTER_COLUMNS.get(table_name),
                 month_start,
                 month_end,
             )
             target_conn.commit()
+            delete_time = time.perf_counter() - delete_start
+
+            try:
+                disable_start = time.perf_counter()
+                disabled_indexes = disable_nonclustered_indexes(cursor, target_table)
+                disable_time = time.perf_counter() - disable_start
+                if disabled_indexes:
+                    print(f"[INFO] {table_name} {month_key}: disabled indexes {disabled_indexes}")
+            except Exception as exc:
+                disable_time = time.perf_counter() - disable_start if 'disable_start' in locals() else 0.0
+                print(f"[WARN] {table_name} {month_key}: index disable failed, continuing without: {exc}", file=sys.stderr)
 
             total_loaded = 0
             rows_since_commit = 0
 
             try:
+                insert_start = time.perf_counter()
                 chunk_iter = pd.read_sql(
                     query,
                     source_conn,
@@ -226,7 +311,27 @@ def stream_month_to_target(
                     )
 
             target_conn.commit()
+            insert_time = time.perf_counter() - insert_start
+            try:
+                rebuild_start = time.perf_counter()
+                rebuild_indexes(cursor, target_table, disabled_indexes)
+                rebuild_time = time.perf_counter() - rebuild_start
+            except Exception as exc:
+                rebuild_time = time.perf_counter() - rebuild_start
+                print(f"[WARN] {table_name} {month_key}: index rebuild failed: {exc}", file=sys.stderr)
+            else:
+                disabled_indexes = []
+
+            total_time = time.perf_counter() - total_start
             print(f"[LOAD] {table_name} {month_key}: loaded {total_loaded:,} rows")
+            print(
+                f"[TIMING] {table_name} {month_key}: "
+                f"DELETE {format_duration(delete_time)} | "
+                f"DISABLE_IDX {format_duration(disable_time)} | "
+                f"INSERT {format_duration(insert_time)} | "
+                f"REBUILD_IDX {format_duration(rebuild_time)} | "
+                f"TOTAL {format_duration(total_time)}"
+            )
             return month_key, total_loaded
         except MonthRetryableError as retry_err:
             attempt += 1
@@ -252,6 +357,12 @@ def stream_month_to_target(
             if source_conn:
                 source_conn.close()
             if target_conn:
+                if disabled_indexes and cursor:
+                    try:
+                        rebuild_indexes(cursor, target_table, disabled_indexes)
+                        rebuild_time = time.perf_counter() - rebuild_start if 'rebuild_start' in locals() else rebuild_time
+                    except Exception as exc:
+                        print(f"[WARN] {table_name} {month_key}: index rebuild during cleanup failed: {exc}", file=sys.stderr)
                 target_conn.close()
 
     raise RuntimeError(f"{table_name} {month_key}: failed after {max_retries} attempts")
