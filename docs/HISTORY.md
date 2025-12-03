@@ -8,9 +8,9 @@
 | Nov 2025 | Created `/docs` knowledge base | CLAUDE summary + Markdown briefs (Plan, ETL, API, Infra, History) to keep LLM context current |
 | Nov 2025 | Bootstrapped replica ETL tooling | Added replica migrations + new scripts (`export_and_load_replica.py`, `run_replica_etl.py`) leveraging bulk-export + Parquet load workflow |
 | Nov 2025 | Fixed schema replication approach | Updated to use actual columns from `xilnex_full_schema.json` instead of curated `replica_schema.json`; created `generate_migration_from_schema.py` to auto-generate migrations; fixed SSL certificate issues for local connections; added `--skip-existing` flag to avoid re-processing loaded tables |
+| Dec 2025 | Shifted to streaming + renamed ETL entrypoints | Added direct streaming for full-table runs (`replicate_reference_tables.py`), renamed monthly loader to `replicate_monthly_parallel_streaming.py`, left shims for old script names |
 
 ### Outstanding Ideas (Future Phase Suggestions)
 - Reintroduce star schema once replica proves value.
 - Backfill 2018–2023 history when bandwidth allows.
 - Add data-type normalization + indexing after replication stabilizes.
-

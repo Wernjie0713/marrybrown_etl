@@ -39,7 +39,7 @@ def insert_run_history(run_type: str, start_date: str, end_date: str, success: b
 def run_export(start_date: str, end_date: str, tables=None, full=False):
     cmd = [
         "python",
-        "scripts/export_and_load_replica.py",
+        "scripts/replicate_reference_tables.py",
         "--start-date",
         start_date,
         "--end-date",

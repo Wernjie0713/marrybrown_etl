@@ -1,3 +1,10 @@
+"""
+Replication utilities for reference tables and general exports.
+
+Adds a direct streaming mode for --full-table runs to avoid Parquet I/O while
+keeping existing Parquet-based flows and helpers for compatibility.
+"""
+
 import argparse
 import json
 import sys
@@ -936,6 +943,98 @@ def delete_existing_range(
         )
 
 
+def stream_full_table_direct(
+    table_name: str,
+    schema_entry: dict,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    args: argparse.Namespace,
+    conn_manager: Optional[ConnectionManager] = None,
+) -> int:
+    """Stream a full table directly from source to target without Parquet."""
+    query, params = build_select_statement(
+        table_name,
+        schema_entry,
+        start_date,
+        end_date,
+        full_table=True,
+    )
+
+    columns = [col["name"] for col in schema_entry["columns"]]
+    placeholders = ", ".join(["?"] * len(columns))
+    column_list = ", ".join(columns)
+    insert_sql = f"INSERT INTO dbo.com_5013_{table_name} ({column_list}) VALUES ({placeholders})"
+
+    print(f"\n[STREAM] {table_name}: streaming full table directly to target")
+
+    # Connections
+    if conn_manager and conn_manager.source_conn:
+        source_conn = conn_manager.source_conn
+        close_source = False
+    else:
+        source_conn = get_source_connection()
+        close_source = True
+
+    if conn_manager and conn_manager.target_conn:
+        target_conn = conn_manager.target_conn
+        close_target = False
+    else:
+        target_conn = get_target_connection()
+        close_target = True
+
+    try:
+        cursor = target_conn.cursor()
+        cursor.fast_executemany = True
+
+        total_loaded = 0
+        rows_since_commit = 0
+        first_chunk = True
+
+        chunk_iter = pd.read_sql_query(
+            query,
+            source_conn,
+            params=params if params else None,
+            chunksize=args.chunk_size,
+        )
+
+        for chunk_idx, chunk in enumerate(chunk_iter):
+            if chunk.empty:
+                continue
+
+            if first_chunk:
+                validate_columns(table_name, schema_entry, chunk.columns)
+                first_chunk = False
+
+            chunk = prepare_data_for_sql(chunk, schema_entry)
+            batch_data = [
+                build_row_tuple(row)
+                for row in chunk[columns].itertuples(index=False, name=None)
+            ]
+
+            try:
+                cursor.executemany(insert_sql, batch_data)
+            except Exception as exc:
+                print(f"[ERROR] {table_name}: failed during direct stream chunk {chunk_idx}: {exc}", file=sys.stderr)
+                raise
+
+            total_loaded += len(batch_data)
+            rows_since_commit += len(batch_data)
+
+            if rows_since_commit >= args.commit_interval:
+                target_conn.commit()
+                rows_since_commit = 0
+                print(f"  [STREAM] {table_name}: committed {total_loaded:,} rows", end="\r", flush=True)
+
+        target_conn.commit()
+        print(f"\n[STREAM] {table_name}: streamed {total_loaded:,} rows directly to target")
+        return total_loaded
+    finally:
+        if close_source:
+            source_conn.close()
+        if close_target:
+            target_conn.close()
+
+
 def stream_export_and_load(
     table_name: str,
     schema_entry: dict,
@@ -1049,26 +1148,67 @@ def run_for_table(
     conn_manager: Optional[ConnectionManager] = None,
 ):
     """Process a single table using streaming pipeline."""
+    output_dir = Path(args.output_dir) / table_name.lower()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine mode for full-table loads
+    full_table_mode = args.full_table_mode
+    if args.skip_load or args.use_bulk_insert:
+        # Parquet is required if caller wants to skip load or use BULK INSERT
+        full_table_mode = "parquet"
+        if args.full_table_mode == "stream" and args.skip_load:
+            print(f"[INFO] {table_name}: --skip-load forces full-table mode to parquet")
+        if args.full_table_mode == "stream" and args.use_bulk_insert:
+            print(f"[INFO] {table_name}: --use-bulk-insert forces full-table mode to parquet")
+
+    use_direct_full_table = args.full_table and full_table_mode == "stream" and not args.skip_load
+
     try:
-        parquet_path, total_rows, rows_loaded = stream_export_and_load(
-            table_name,
-            schema_entry,
-            start_date,
-            end_date,
-            args,
-            conn_manager=conn_manager,
-        )
-        
-        manifest = {
-            "table": table_name,
-            "rows": total_rows,
-            "rows_loaded": rows_loaded,
-            "parquet": str(parquet_path),
-            "start_date": start_date,
-            "end_date": end_date,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-        }
-        manifest_path = parquet_path.with_suffix(".json")
+        manifest = {}
+        if use_direct_full_table:
+            run_suffix = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+            rows_loaded = stream_full_table_direct(
+                table_name,
+                schema_entry,
+                start_date,
+                end_date,
+                args,
+                conn_manager=conn_manager,
+            )
+            total_rows = rows_loaded
+            manifest = {
+                "table": table_name,
+                "rows": total_rows,
+                "rows_loaded": rows_loaded,
+                "parquet": None,
+                "mode": "stream",
+                "start_date": start_date,
+                "end_date": end_date,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+            manifest_path = output_dir / f"{table_name.lower()}_{run_suffix}_stream.json"
+        else:
+            parquet_path, total_rows, rows_loaded = stream_export_and_load(
+                table_name,
+                schema_entry,
+                start_date,
+                end_date,
+                args,
+                conn_manager=conn_manager,
+            )
+            
+            manifest = {
+                "table": table_name,
+                "rows": total_rows,
+                "rows_loaded": rows_loaded,
+                "parquet": str(parquet_path),
+                "mode": "parquet",
+                "start_date": start_date,
+                "end_date": end_date,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+            manifest_path = parquet_path.with_suffix(".json")
+
         manifest_path.write_text(json.dumps(manifest, indent=2))
         print(f"[INFO] Manifest written to {manifest_path}")
         
@@ -1258,6 +1398,12 @@ def parse_args() -> argparse.Namespace:
         "--skip-load",
         action="store_true",
         help="Export only; do not load into SQL Server target.",
+    )
+    parser.add_argument(
+        "--full-table-mode",
+        choices=["stream", "parquet"],
+        default="stream",
+        help="Mode for --full-table loads: stream directly to SQL (default) or write Parquet.",
     )
     parser.add_argument(
         "--full-table",

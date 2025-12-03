@@ -7,8 +7,8 @@ separate thread with independent connections. Resume is handled via a simple
 checkpoint file that records synced months.
 
 Usage:
-    python scripts/replicate_monthly_parallel.py APP_4_SALES --start-date 2024-01-01 --end-date 2024-12-31
-    python scripts/replicate_monthly_parallel.py APP_4_SALES --start-date 2024-01-01 --end-date 2024-12-31 --resume
+    python scripts/replicate_monthly_parallel_streaming.py APP_4_SALES --start-date 2024-01-01 --end-date 2024-12-31
+    python scripts/replicate_monthly_parallel_streaming.py APP_4_SALES --start-date 2024-01-01 --end-date 2024-12-31 --resume
 """
 
 import argparse
@@ -28,7 +28,7 @@ import pyodbc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import functions from main ETL script
-from export_and_load_replica import (
+from replicate_reference_tables import (
     DATE_FILTER_COLUMNS,
     build_row_tuple,
     build_select_statement,

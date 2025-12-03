@@ -10,7 +10,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.export_and_load_replica import load_schema  # noqa: E402
+from scripts.replicate_reference_tables import load_schema  # noqa: E402
 
 
 def main(table_name: str):

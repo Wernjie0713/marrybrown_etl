@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import config  # noqa: E402
-from scripts.export_and_load_replica import (
+from scripts.replicate_reference_tables import (
     load_schema,
     prepare_data_for_sql,
 )  # noqa: E402

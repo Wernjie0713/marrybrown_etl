@@ -72,21 +72,22 @@ python run_replica_etl.py --check-fixes --date 2025-11-25
 - Run migrations: `000_drop_all_tables.sql` (if needed), then `100_create_replica_tables.sql`, then `110_create_replica_metadata_tables.sql`
 
 **Export & Load Script:**
-- `scripts/export_and_load_replica.py` reads **actual columns from `docs/xilnex_full_schema.json`** (not `replica_schema.json`)
+- `scripts/replicate_reference_tables.py` reads **actual columns from `docs/xilnex_full_schema.json`** (not `replica_schema.json`)
 - `replica_schema.json` is for API development reference only; replication uses the full schema
-- Exports to Snappy Parquet, validates columns, writes manifest, and inserts into replica tables
+- Default `--full-table` path streams reference tables directly into SQL (no Parquet); keep the old Parquet flow by setting `--full-table-mode parquet`
 - **New:** `--skip-existing` flag skips tables that are already loaded (checks target database)
+- Backward-compat wrapper: `scripts/export_and_load_replica.py` imports/forwards to `replicate_reference_tables.py`
 
 **Examples:**
 ```bash
 # Full table load (reference tables, no date filter)
-python scripts/export_and_load_replica.py --full-table
+python scripts/replicate_reference_tables.py --full-table
 
 # Date-filtered load (2024-2025 data)
-python scripts/export_and_load_replica.py --start-date 2024-01-01 --end-date 2026-01-01
+python scripts/replicate_reference_tables.py --start-date 2024-01-01 --end-date 2026-01-01
 
 # Specific tables with skip logic
-python scripts/export_and_load_replica.py \
+python scripts/replicate_reference_tables.py \
   --start-date 2024-01-01 \
   --end-date 2024-01-02 \
   --table APP_4_SALES \
@@ -94,7 +95,13 @@ python scripts/export_and_load_replica.py \
   --skip-existing
 
 # Export only (no load)
-python scripts/export_and_load_replica.py --full-table --skip-load
+python scripts/replicate_reference_tables.py --full-table --skip-load
+
+# Force legacy Parquet mode for full-table runs
+python scripts/replicate_reference_tables.py --full-table --full-table-mode parquet
+
+# Monthly parallel streamer for large date tables
+python scripts/replicate_monthly_parallel_streaming.py APP_4_SALES --start-date 2024-01-01 --end-date 2024-12-31 --max-workers 4
 ```
 
 **Orchestration:**
@@ -109,7 +116,7 @@ python scripts/run_replica_etl.py --date 2024-11-25 --skip-t1
 ```
 
 **File Locations:**
-- Parquet exports: `exports/<table>/` (default, configurable via `--output-dir`)
-- Each run writes a JSON manifest (row counts, file path, timestamps) next to the Parquet file
+- Streaming runs (full-table default) write a JSON manifest next to the table output directory; Parquet manifests still write alongside the file when that mode is enabled
+- Parquet exports: `exports/<table>/` (only when Parquet mode is used; configurable via `--output-dir`)
+- Each Parquet run writes a JSON manifest (row counts, file path, timestamps) next to the Parquet file
 - Connection settings: `.env.local` for local testing, `.env` for production
-

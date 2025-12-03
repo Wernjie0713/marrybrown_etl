@@ -18,20 +18,20 @@
 - **IP Whitelisting**: Xilnex restricts direct DB access; keep ETL server IP registered. Company WiFi changes often—prefer static IP or always run ETL from cloud server.
 
 ### Directories (current repo)
-- `archive/legacy_api_pipeline/` – previous star-schema + API-based ETL assets
-- `docs/` – active documentation for 1:1 replica plan (schemas, infra, history)
-  - `replica_schema.json` – **API development reference only** (curated columns with notes)
-  - `xilnex_full_schema.json` – **Actual schema used for replication** (full 598-table dump)
-- `exports/` – Parquet dumps produced by `scripts/export_and_load_replica.py` (can be cleaned between runs)
-- `migrations/schema_tables/` – SQL migration files
-  - `000_drop_all_tables.sql` – Drop all replica tables (use before recreating)
-  - `100_create_replica_tables.sql` – Auto-generated from actual Xilnex schema
-  - `110_create_replica_metadata_tables.sql` – ETL tracking tables
-- `scripts/` – ETL automation
-  - `generate_migration_from_schema.py` – Regenerate migration SQL from Xilnex schema
-  - `export_and_load_replica.py` – Main export/load script (uses actual schema)
-  - `run_replica_etl.py` – T-0/T-1 orchestration
-
+- `archive/legacy_api_pipeline/` ? previous star-schema + API-based ETL assets
+- `docs/` ? active documentation for 1:1 replica plan (schemas, infra, history)
+  - `replica_schema.json` ? **API development reference only** (curated columns with notes)
+  - `xilnex_full_schema.json` ? **Actual schema used for replication** (full 598-table dump)
+- `exports/` ? Parquet dumps produced by Parquet mode in `scripts/replicate_reference_tables.py` (can be cleaned between runs)
+- `migrations/schema_tables/` ? SQL migration files
+  - `000_drop_all_tables.sql` ? Drop all replica tables (use before recreating)
+  - `100_create_replica_tables.sql` ? Auto-generated from actual Xilnex schema
+  - `110_create_replica_metadata_tables.sql` ? ETL tracking tables
+- `scripts/` ? ETL automation
+  - `generate_migration_from_schema.py` ? Regenerate migration SQL from Xilnex schema
+  - `replicate_reference_tables.py` ? Main reference/full-table export (streams by default; Parquet optional). Legacy shim: `export_and_load_replica.py`
+  - `replicate_monthly_parallel_streaming.py` ? Large date-based tables with parallel month streaming
+  - `run_replica_etl.py` ? T-0/T-1 orchestration
 ### Monitoring / Ops
 - Windows Task Scheduler (planned) for 2 AM ETL trigger
 - `etl_replica_progress` + `replica_run_history` tables capture per-table metrics and run summaries
