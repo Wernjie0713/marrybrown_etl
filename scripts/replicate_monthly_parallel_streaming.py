@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import json
+import math
 import sys
 import time
 from datetime import date, datetime
@@ -23,20 +24,22 @@ from typing import Dict, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import pandas as pd
 import pyodbc
+import polars as pl
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import functions from main ETL script
 from replicate_reference_tables import (
     DATE_FILTER_COLUMNS,
+    DATETIME_MAX,
+    DATETIME_MIN,
     build_row_tuple,
     build_select_statement,
     delete_existing_range,
     get_source_connection,
     get_target_connection,
     load_schema,
-    prepare_data_for_sql,
+    round_to_datetime_precision,
 )
 
 import config
@@ -105,6 +108,93 @@ def generate_month_ranges(start_date: str, end_date: str) -> List[Tuple[str, str
 def get_checkpoint_path(table_name: str, output_dir: Path) -> Path:
     """Get path to checkpoint file for this table."""
     return output_dir / f"{table_name.lower()}_monthly_checkpoint.json"
+
+
+def _convert_datetime_value(val, is_date: bool):
+    if val is None:
+        return None
+    if isinstance(val, (float, int)):
+        try:
+            if math.isnan(val):
+                return None
+        except Exception:
+            pass
+
+    dt = None
+    if isinstance(val, datetime):
+        dt = val
+    elif isinstance(val, date):
+        dt = datetime.combine(val, datetime.min.time())
+    elif isinstance(val, str):
+        s_val = val.strip()
+        if not s_val:
+            return None
+        try:
+            if len(s_val) == 19 and s_val[10] == " ":
+                dt = datetime.strptime(s_val, "%Y-%m-%d %H:%M:%S")
+            elif len(s_val) == 10 and "-" in s_val:
+                dt = datetime.strptime(s_val, "%Y-%m-%d")
+            else:
+                dt = datetime.fromisoformat(s_val)
+        except Exception:
+            return None
+
+    if dt is not None:
+        if dt < DATETIME_MIN or dt > DATETIME_MAX:
+            return None
+        if is_date:
+            return dt.date()
+        return round_to_datetime_precision(dt)
+    return None
+
+
+def prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.DataFrame:
+    """
+    Prepare Polars DataFrame for SQL insertion mirroring pandas prepare_data_for_sql.
+    """
+    if pl_df.is_empty():
+        return pl_df
+
+    column_type_map = {col["name"]: col.get("type", "").lower() for col in schema_entry["columns"]}
+
+    exprs = []
+
+    for col_name in pl_df.columns:
+        col_type = column_type_map.get(col_name, "")
+
+        if col_type in ("datetime", "date"):
+            is_date = col_type == "date"
+            date_expr = pl.col(col_name).map_elements(
+                lambda v: _convert_datetime_value(v, is_date),
+                skip_nulls=False,
+            )
+            exprs.append(date_expr.alias(col_name))
+        else:
+            # sanitize NaN/NaT -> None and convert scalar objects
+            def sanitize(val):
+                if val is None:
+                    return None
+                try:
+                    if isinstance(val, float) and math.isnan(val):
+                        return None
+                except Exception:
+                    pass
+                if hasattr(val, "item"):
+                    try:
+                        val = val.item()
+                    except Exception:
+                        pass
+                # Normalize binary-like to bytes
+                if isinstance(val, memoryview):
+                    val = bytes(val)
+                elif isinstance(val, bytearray):
+                    val = bytes(val)
+                return val
+
+            exprs.append(pl.col(col_name).map_elements(sanitize, skip_nulls=False).alias(col_name))
+
+    cleaned = pl_df.select(exprs)
+    return cleaned
 
 
 def get_nonclustered_indexes(cursor: pyodbc.Cursor, target_table: str) -> List[str]:
@@ -228,6 +318,29 @@ def stream_month_to_target(
     target_table = f"dbo.com_5013_{table_name}"
     insert_sql = f"INSERT INTO {target_table} WITH (TABLOCK) ({column_list}) VALUES ({placeholders})"
 
+    # Build Polars schema from SQL types
+    def map_sql_type_to_polars(sql_type: str) -> pl.DataType:
+        t = (sql_type or "").lower()
+        if t in ("int", "bigint", "smallint", "tinyint"):
+            return pl.Int64
+        if t in ("decimal", "numeric", "float", "real", "money"):
+            return pl.Float64
+        if t in ("date",):
+            return pl.Date
+        if t in ("datetime", "datetime2", "smalldatetime"):
+            return pl.Datetime
+        if t in ("bit",):
+            return pl.Boolean
+        if t in ("timestamp", "binary", "varbinary"):
+            return pl.Binary
+        # default string
+        return pl.Utf8
+
+    polars_schema_base = {
+        col["name"]: map_sql_type_to_polars(col.get("type", ""))
+        for col in schema_entry["columns"]
+    }
+
     attempt = 1
     while attempt <= max_retries:
         source_conn = None
@@ -266,27 +379,42 @@ def stream_month_to_target(
             total_loaded = 0
             rows_since_commit = 0
 
-            try:
-                insert_start = time.perf_counter()
-                chunk_iter = pd.read_sql(
-                    query,
-                    source_conn,
-                    params=params if params else None,
-                    chunksize=chunk_size,
+            insert_start = time.perf_counter()
+            # Use cursor-based fetch to avoid pandas read_sql; wrap rows in Polars then pandas for existing prep.
+            cursor_src = source_conn.cursor()
+            cursor_src.execute(query, params or [])
+            chunk_idx = 0
+            fetched_columns = [desc[0] for desc in cursor_src.description] if cursor_src.description else columns
+            # If schema mismatch, prefer actual fetched columns but try to align order to expected when possible.
+            if len(fetched_columns) != len(columns):
+                print(
+                    f"[WARN] {table_name} {month_key}: fetched {len(fetched_columns)} columns but expected {len(columns)}; using fetched schema order",
+                    file=sys.stderr,
                 )
-            except Exception as e:
-                if is_connection_lost_error(e):
-                    raise MonthRetryableError(f"Connection lost before streaming started: {e}") from e
-                raise
-
-            for chunk_idx, chunk in enumerate(chunk_iter):
-                if chunk.empty:
+            selected_columns = columns if set(columns).issubset(set(fetched_columns)) else fetched_columns
+            polars_schema = {col: polars_schema_base.get(col, pl.Utf8) for col in fetched_columns}
+            while True:
+                rows = cursor_src.fetchmany(chunk_size)
+                if not rows:
+                    break
+                # Ensure pyodbc.Row -> tuple for Polars
+                rows = [tuple(r) for r in rows]
+                # Create Polars DataFrame for downstream prep.
+                try:
+                    pl_chunk = pl.DataFrame(rows, schema=polars_schema, orient="row")
+                except Exception as e:
+                    print(f"[DEBUG] {table_name} {month_key}: Polars DataFrame creation failed", file=sys.stderr)
+                    print(f"[DEBUG] Error: {e}", file=sys.stderr)
+                    print(f"[DEBUG] Fetched columns ({len(fetched_columns)}): {fetched_columns[:10]}...", file=sys.stderr)
+                    print(f"[DEBUG] First row sample ({len(rows[0])} values): {rows[0][:10] if rows else 'no rows'}...", file=sys.stderr)
+                    print(f"[DEBUG] Expected columns ({len(columns)}): {columns[:10]}...", file=sys.stderr)
+                    raise
+                if pl_chunk.is_empty():
                     continue
-
-                chunk = prepare_data_for_sql(chunk, schema_entry)
+                chunk_pl = prepare_data_for_sql_polars(pl_chunk, schema_entry)
                 batch_data = [
                     build_row_tuple(row)
-                    for row in chunk[columns].itertuples(index=False, name=None)
+                    for row in chunk_pl.select(selected_columns).rows()
                 ]
 
                 try:
@@ -300,6 +428,7 @@ def stream_month_to_target(
 
                 total_loaded += len(batch_data)
                 rows_since_commit += len(batch_data)
+                chunk_idx += 1
 
                 if rows_since_commit >= commit_interval:
                     target_conn.commit()

@@ -308,6 +308,224 @@ Larger batches ≠ always faster. Batch size sweet spot depends on table width, 
 
 ---
 
+## 6. Polars Migration (Phase 2 Performance Optimization)
+
+### Context
+
+After reverting batch sizes to proven defaults, moved to Phase 2: Replace Pandas with Polars for native Rust performance.
+
+### Implementation Approach
+
+**Initial Attempt: Hybrid (Polars + Pandas)**
+
+- Read data with Polars
+- Convert to Pandas for `prepare_data_for_sql()`
+- **Problem:** Conversion overhead negated Polars benefits
+
+**Final Implementation: Full Native Polars**
+
+- Eliminated ALL Pandas operations from the hot path
+- Created `prepare_data_for_sql_polars()` - New Polars-native function
+- Core pipeline: `Database → cursor.fetchmany() → Polars DataFrame → Polars prep → SQL Insert`
+
+### Technical Details
+
+**New Polars-Native Function:**
+
+```python
+prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.DataFrame
+```
+
+**Functionality:**
+
+- Datetime/Date parsing with SQL Server bounds checking
+- Placeholder date conversion (`0001-01-01` → NULL)
+- NaN/NaT sanitization
+- Numpy scalar coercion to native Python types
+- Uses Polars `.map_elements()` for transformations
+
+**Hot Path Flow:**
+
+1. `cursor.fetchmany(chunk_size)` - Fetch raw rows from source
+2. `pl.DataFrame(rows, schema=columns)` - Create Polars DataFrame
+3. `prepare_data_for_sql_polars(pl_chunk, schema_entry)` - Polars-native prep
+4. `chunk_pl.select(columns).rows()` - Convert to Python tuples via Polars
+5. `cursor.executemany(insert_sql, batch_data)` - Insert to SQL
+
+**Zero Pandas Conversions:** No `.to_pandas()` or `pl.from_pandas()` in the processing loop
+
+### Dependencies Installed
+
+```bash
+pip install polars
+# Version: polars-1.35.2, polars-runtime-32-1.35.2
+```
+
+### Code Changes
+
+**Modified:** `scripts/replicate_monthly_parallel_streaming.py`
+
+- Added: `import polars as pl`
+- Added: `prepare_data_for_sql_polars()` function (151 lines of Polars-native logic)
+- Modified: `stream_month_to_target()` - Replaced Pandas chunking with cursor-based Polars
+- Removed: All pandas imports and operations
+
+**Preserved:**
+
+- ✅ All timing instrumentation
+- ✅ Delete-before-insert idempotency
+- ✅ Index disable/rebuild logic
+- ✅ TABLOCK hint
+- ✅ Retry mechanisms
+- ✅ Checkpoint system
+- ✅ 2 workers default
+- ✅ 10k/100k batch defaults
+
+### Expected Performance Improvement
+
+**Conservative:** 20-30% faster than Pandas baseline  
+**Optimistic:** 40-50% faster (Rust-native operations)
+
+**Factors:**
+
+- Eliminated Python DataFrame overhead
+- Rust-based type conversions (much faster than numpy/pandas)
+- Native Polars memory management
+- No conversion bottleneck
+
+### Next Testing
+
+Will measure timing logs to confirm improvement:
+
+```
+[TIMING] APP_4_SALES 2024-01: DELETE Xs | DISABLE_IDX Xs | INSERT Xm | REBUILD_IDX Xs | TOTAL Xm
+```
+
+Compare INSERT time against previous Pandas runs to quantify Polars benefit.
+
+---
+
+## 7. Polars Type Inference Debugging & Explicit Schema Implementation
+
+### Problem Discovered
+
+After implementing the full Polars migration, encountered **type inference errors** during data loading:
+
+```
+could not append value: 0 of type: i64 to the builder
+make sure that all rows have the same schema or consider increasing `infer_schema_length`
+```
+
+**Root Cause:**
+
+Polars was **guessing data types** from the first 100 rows (default `infer_schema_length=100`). When later rows had different types in the same column (e.g., empty strings `''` vs integers `0`), Polars failed with type mismatch errors.
+
+**The Pandas Difference:**
+
+- **Pandas:** Lenient - uses `object` dtype for mixed types, no errors
+- **Polars:** Strict - enforces type consistency for performance, errors on type mismatches
+
+### Decision: Use Raw Schema, Stop Guessing
+
+Instead of letting Polars infer types from data samples, **use exact SQL Server types** from the source database schema:
+
+```
+Source DB Schema → Explicit Polars Schema → DataFrame Creation
+(No inference, no guessing)
+```
+
+### Implementation
+
+**Step 1: SQL → Polars Type Mapping**
+
+Created a mapping function in `stream_month_to_target`:
+
+```python
+def map_sql_type_to_polars(sql_type: str) -> pl.DataType:
+    t = (sql_type or "").lower()
+    if t in ("int", "bigint", "smallint", "tinyint"):
+        return pl.Int64
+    if t in ("decimal", "numeric", "float", "real", "money"):
+        return pl.Float64
+    if t in ("date",):
+        return pl.Date
+    if t in ("datetime", "datetime2", "smalldatetime"):
+        return pl.Datetime
+    if t in ("bit",):
+        return pl.Boolean
+    if t in ("timestamp", "binary", "varbinary"):
+        return pl.Binary
+    return pl.Utf8  # default string
+```
+
+**Step 2: Build Explicit Schema from Source**
+
+```python
+polars_schema_base = {
+    col["name"]: map_sql_type_to_polars(col.get("type", ""))
+    for col in schema_entry["columns"]
+}
+
+# At runtime, match fetched columns
+polars_schema = {col: polars_schema_base.get(col, pl.Utf8) for col in fetched_columns}
+```
+
+**Step 3: Use Explicit Schema in DataFrame Creation**
+
+```python
+pl.DataFrame(rows, schema=polars_schema, orient="row")
+```
+
+### Secondary Issue: Datetime Return Type Mismatch
+
+After fixing the schema, encountered a new error:
+
+```
+expected output type 'Object', got 'Datetime('μs')'
+```
+
+**Cause:**
+
+- Explicit schema typed datetime columns as `pl.Datetime`
+- `prepare_data_for_sql_polars` used `.map_elements(..., return_dtype=pl.Object)` expecting Python objects
+- Type mismatch between DataFrame column type and map function return type
+
+**Fix:**
+
+Updated `prepare_data_for_sql_polars` to use explicit return types matching the schema:
+
+```python
+pl.col(col_name).map_elements(
+    lambda v: _convert_datetime_value(v, is_date),
+    return_dtype=pl.Date if is_date else pl.Datetime,  # ← Explicit, not Object
+).alias(col_name)
+```
+
+### Result
+
+✅ **No more type inference errors**  
+✅ **Schema-driven replication** - types come from source database, not guessed from data samples  
+✅ **Type-safe casting** - Polars converts data to match declared schema (e.g., `0` in VARCHAR → `"0"`)  
+✅ **True 1:1 replication** - source schema structure → target schema structure
+
+### Regression: Polars return_dtype failures on mixed data (APP_4_SALES Apr–Jun)
+
+- After removing pandas and forcing full Polars, repeated errors: `expected output type 'Date' got 'Datetime(µs)'` and `... got 'Binary'`.
+- Failed attempts:
+  - Forcing `return_dtype` to Object then casting to Date/Datetime/Binary.
+  - Forcing `return_dtype` to per-column mapped dtypes.
+  - Hybrid Object + downstream casts.
+- Working fix (from another AI):
+  - Remove `return_dtype` in `map_elements` and set `skip_nulls=False` so nulls still flow through the lambda.
+  - Let Polars infer from the lambda outputs (datetime/date/bytes/None) instead of enforcing Object/Date/Binary builders.
+  - Keep minimal normalization (NaN/None cleanup, binary→bytes) and schema-driven replication; no extra transformations.
+
+### Lesson Learned
+
+**"Trust the Source, Not the Sample":** For ETL workloads, always use explicit schemas from the source database rather than inferring from data samples. Inference works for analysis, but fails for production data pipelines with messy real-world data (mixed types, nulls, edge cases).
+
+---
+
 ## Next Steps
 
 1. **Testing the New Streaming Mode**
@@ -335,3 +553,5 @@ Larger batches ≠ always faster. Batch size sweet spot depends on table width, 
 4. **Streaming is King:** Direct in-memory streaming eliminates disk I/O bottleneck for both small and large tables
 5. **Idempotent by Design:** Delete-before-insert pattern ensures safe re-runs with no duplicates, making interrupted loads recoverable without manual cleanup
 6. **Measure, Don't Assume:** "Obvious" optimizations (larger batches) can backfire. Always measure performance before and after changes. Table width matters for batch sizing.
+7. **Go Native or Go Home:** Hybrid approaches (Polars→Pandas conversion) negate performance benefits. Full migration to a new library is worth the extra effort for true gains.
+8. **Trust the Source, Not the Sample:** For ETL, explicit schemas from the source database beat type inference from data samples. Production data has mixed types, nulls, and edge cases that break inference-based approaches.
