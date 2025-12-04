@@ -7,6 +7,9 @@ __pycache__/
 venv/
 env/
 ENV/
+.env
+.env.local
+.env.cloud
 
 # IDE
 .vscode/

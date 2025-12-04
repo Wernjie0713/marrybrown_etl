@@ -48,23 +48,25 @@ except Exception as e:
 
 # --- 2. CONFIGURE AND TEST TARGET (LOCAL WAREHOUSE) CONNECTION ---
 try:
+    import pyodbc
     target_driver = os.getenv("TARGET_DRIVER", "")
     if not target_driver:
         raise ValueError("TARGET_DRIVER not found in environment variables")
     
-    target_connection_uri = (
-        "mssql+pyodbc://{user}:{password}@{server}/{database}?driver={driver}&TrustServerCertificate=yes"
-        .format(
-            user=os.getenv("TARGET_USERNAME"),
-            password=os.getenv("TARGET_PASSWORD"),
-            server=os.getenv("TARGET_SERVER"),
-            database=os.getenv("TARGET_DATABASE"),
-            driver=target_driver.replace(" ", "+"),
-        )
+    # Build connection string manually for pyodbc to support "tcp:" prefix
+    # which SQLAlchemy's create_url/create_engine often chokes on.
+    conn_str = (
+        f"DRIVER={{{target_driver}}};"
+        f"SERVER={os.getenv('TARGET_SERVER')};"
+        f"DATABASE={os.getenv('TARGET_DATABASE')};"
+        f"UID={os.getenv('TARGET_USERNAME')};"
+        f"PWD={os.getenv('TARGET_PASSWORD')};"
+        "TrustServerCertificate=yes;"
     )
-    target_engine = create_engine(target_connection_uri)
-    with target_engine.connect() as connection:
-        print("✅ Successfully connected to target database!")
+    
+    print(f"   Connecting to: {os.getenv('TARGET_SERVER')}...")
+    with pyodbc.connect(conn_str, timeout=10) as connection:
+        print("✅ Successfully connected to target database! (via pyodbc)")
         print(f"   Server: {os.getenv('TARGET_SERVER')}")
         print(f"   Database: {os.getenv('TARGET_DATABASE')}\n")
 
