@@ -166,6 +166,7 @@ def prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.D
             is_date = col_type == "date"
             date_expr = pl.col(col_name).map_elements(
                 lambda v: _convert_datetime_value(v, is_date),
+                return_dtype=pl.Object,
                 skip_nulls=False,
             )
             exprs.append(date_expr.alias(col_name))
@@ -191,7 +192,7 @@ def prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.D
                     val = bytes(val)
                 return val
 
-            exprs.append(pl.col(col_name).map_elements(sanitize, skip_nulls=False).alias(col_name))
+            exprs.append(pl.col(col_name).map_elements(sanitize, return_dtype=pl.Object, skip_nulls=False).alias(col_name))
 
     cleaned = pl_df.select(exprs)
     return cleaned
