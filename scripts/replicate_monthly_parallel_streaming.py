@@ -148,6 +148,22 @@ def _convert_datetime_value(val, is_date: bool):
     return None
 
 
+def get_polars_dtype(sql_type: str) -> pl.DataType:
+    """Map SQL type string to Polars DataType."""
+    sql_type = sql_type.lower()
+    if any(t in sql_type for t in ("int", "bigint", "smallint", "tinyint")):
+        return pl.Int64
+    if any(t in sql_type for t in ("char", "text", "xml", "uniqueidentifier")):
+        return pl.Utf8
+    if "bit" in sql_type:
+        return pl.Boolean
+    if any(t in sql_type for t in ("float", "real", "decimal", "numeric", "money")):
+        return pl.Float64
+    if any(t in sql_type for t in ("binary", "image")):
+        return pl.Binary
+    return pl.Object
+
+
 def prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.DataFrame:
     """
     Prepare Polars DataFrame for SQL insertion mirroring pandas prepare_data_for_sql.
@@ -171,6 +187,9 @@ def prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.D
             )
             exprs.append(date_expr.alias(col_name))
         else:
+            # Determine correct return type for non-date columns
+            return_dtype = get_polars_dtype(col_type)
+
             # sanitize NaN/NaT -> None and convert scalar objects
             def sanitize(val):
                 if val is None:
@@ -192,7 +211,7 @@ def prepare_data_for_sql_polars(pl_df: pl.DataFrame, schema_entry: dict) -> pl.D
                     val = bytes(val)
                 return val
 
-            exprs.append(pl.col(col_name).map_elements(sanitize, return_dtype=pl.Object, skip_nulls=False).alias(col_name))
+            exprs.append(pl.col(col_name).map_elements(sanitize, return_dtype=return_dtype, skip_nulls=False).alias(col_name))
 
     cleaned = pl_df.select(exprs)
     return cleaned
