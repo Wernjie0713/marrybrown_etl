@@ -4,7 +4,7 @@
 # Data Manipulation
 pandas==2.3.3
 numpy==2.3.3
-polars==1.15.0
+polars==0.20.31
 
 # Database Connectivity
 pyodbc==5.2.0
