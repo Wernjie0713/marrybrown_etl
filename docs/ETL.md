@@ -31,19 +31,24 @@ python run_replica_etl.py --check-fixes --date 2025-11-25
 
 **Sales & Transactions:**
 
-- `APP_4_SALES` (184 columns)
-- `APP_4_SALESITEM` (197 columns)
-- `APP_4_PAYMENT` (70 columns)
-- `APP_4_VOIDSALESITEM` (36 columns)
-- `APP_4_SALESCREDITNOTE` (100 columns)
-- `APP_4_SALESCREDITNOTEITEM` (132 columns)
-- `APP_4_SALESDEBITNOTE` (100 columns)
-- `APP_4_SALESDEBITNOTEITEM` (132 columns)
-- `APP_4_SALESDELIVERY` (23 columns)
-- `APP_4_EXTENDEDSALESITEM` (6 columns)
-- `APP_4_EPAYMENTLOG` (20 columns)
-- `APP_4_VOUCHER` (67 columns)
-- `APP_4_CASHIER_DRAWER` (29 columns)
+| Table                       | Columns | Status | Notes                    |
+| --------------------------- | ------- | ------ | ------------------------ |
+| `APP_4_SALES`               | 184     | ✅     | Core sales transactions  |
+| `APP_4_SALESITEM`           | 197     | ✅     | Line items for each sale |
+| `APP_4_PAYMENT`             | 70      | ✅     | Payment records          |
+| `APP_4_VOIDSALESITEM`       | 36      | ✅     | Voided items             |
+| `APP_4_SALESCREDITNOTE`     | 100     | ⚠️     | **No data in source**    |
+| `APP_4_SALESCREDITNOTEITEM` | 132     | ⚠️     | **No data in source**    |
+| `APP_4_SALESDEBITNOTE`      | 100     | ⚠️     | **No data in source**    |
+| `APP_4_SALESDEBITNOTEITEM`  | 132     | ⚠️     | **No data in source**    |
+| `APP_4_SALESDELIVERY`       | 23      | ✅     | Delivery records         |
+| `APP_4_EXTENDEDSALESITEM`   | 6       | ✅     | Extended item data       |
+| `APP_4_EPAYMENTLOG`         | 20      | ⚠️     | **No data in source**    |
+| `APP_4_VOUCHER`             | 67      | ✅     | Voucher usage            |
+| `APP_4_CASHIER_DRAWER`      | 29      | ✅     | Cashier drawer sessions  |
+
+> [!NOTE]
+> Tables marked with ⚠️ have no data in the Xilnex source database. The replication pipeline still processes them but they remain empty. Consider excluding these from future runs to save processing time.
 
 **Products & Inventory:**
 

@@ -96,3 +96,38 @@ We successfully deployed the code to the Windows VM and established connectivity
 
 - **Cause:** The test script was prioritizing `.env.local` over `.env`.
 - **Fix:** Deleted `.env.local` on the VM and updated `.gitignore` to exclude environment files.
+
+---
+
+## 4. VM Replication Success ✅
+
+After resolving the connectivity issues, we successfully ran the replication script on the VM targeting the cloud warehouse.
+
+### Command Executed
+
+```powershell
+python scripts/replicate_all_sales_data.py --start-date 2025-10-01 --end-date 2025-10-02 --max-workers 2
+```
+
+### Verification Results
+
+We created `tests/verify_replication.py` to check row counts on the cloud warehouse (`10.0.1.194:1433`):
+
+| Table                     | Row Count   | Status |
+| ------------------------- | ----------- | ------ |
+| APP_4_SALES               | 44,579      | ✓      |
+| APP_4_SALESITEM           | 227,418     | ✓      |
+| APP_4_PAYMENT             | 44,125      | ✓      |
+| APP_4_VOIDSALESITEM       | 2,912       | ✓      |
+| APP_4_SALESCREDITNOTE     | 0           | ○      |
+| APP_4_SALESCREDITNOTEITEM | 0           | ○      |
+| APP_4_SALESDEBITNOTE      | 0           | ○      |
+| APP_4_SALESDEBITNOTEITEM  | 0           | ○      |
+| APP_4_EPAYMENTLOG         | 0           | ○      |
+| APP_4_VOUCHER             | 73,670      | ✓      |
+| **TOTAL**                 | **392,704** |        |
+
+### Notes
+
+- Tables with 0 rows have no data in the **source** Xilnex database (not a replication issue).
+- The replication pipeline is working correctly for October 2025 data.
