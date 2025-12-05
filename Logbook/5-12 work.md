@@ -171,6 +171,10 @@ Created `migrations/schema_tables/200_create_users_table.sql` for API authentica
 - Email: `user@example.com`
 - Password: `password` (bcrypt cost 12)
 
-### ⚠️ API Code Update Required
+### ✅ API Code Updated
 
-The API (`routers/auth.py`) currently queries `dbo.users`, but the migration created `dbo.api_users`. Need to update API to use the correct table name.
+Updated API authentication to use `dbo.api_users`:
+
+- `routers/auth.py`: All queries now point to `dbo.api_users`; removed `full_name` field
+- `security.py`: `User` model trimmed; `get_user_by_id` selects from `dbo.api_users`
+- `.env`: Updated with cloud DB connection (`10.0.1.194,1433`)
