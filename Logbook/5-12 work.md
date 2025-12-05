@@ -111,3 +111,66 @@ python tests/verify_replication.py
 - `tests/verify_replication.py`: Now checks ALL 19 tables (sales + reference) with subtotals.
 - `tests/verify_local_reference_tables.py`: Updated to use `config.py` for connection.
 - `config.py`: Default target changed to cloud server `10.0.1.194,1433`.
+
+---
+
+## 4. Data Quality Verification Script
+
+Created `tests/verify_data_quality.py` to compare data between **Source (Xilnex replica)** and **Target (Cloud warehouse)**.
+
+### Checks Performed
+
+1. **Row Count Comparison** – Source vs Target row counts for all 19 tables
+2. **Random Sample Comparison** – 5 random rows per table, column-by-column comparison
+
+### Initial Results (5 Dec 2025, 2:12 PM)
+
+**Reference Tables:**
+| Table | Source | Target | Status |
+|-------|--------|--------|--------|
+| APP_4_ITEM | 10,324 | 10,324 | ✅ MATCH |
+| LOCATION_DETAIL | 319 | 319 | ✅ MATCH |
+| APP_4_VOUCHER_MASTER | 1,814 | 1,814 | ✅ MATCH |
+| APP_4_STOCK | 175,944 | 175,901 | ⚠️ -43 (live data) |
+| APP_4_CUSTOMER | 908,812 | 908,667 | ⚠️ -145 (live data) |
+| APP_4_POINTRECORD | 3,811,857 | 3,809,492 | ⚠️ -2,365 (live data) |
+
+**Sales Tables (need more data):**
+| Table | Source (≥Oct 1) | Target | Gap |
+|-------|-----------------|--------|-----|
+| APP_4_SALES | 3,108,249 | 44,579 | -3M |
+| APP_4_SALESITEM | 16,228,095 | 227,418 | -16M |
+| APP_4_PAYMENT | 3,081,468 | 44,125 | -3M |
+
+### Notes
+
+- Reference table differences are **expected** (live production data changes constantly)
+- Sales tables have large gaps because only partial replication was done
+- **Next Step:** Replicating Aug–Oct 2025 data, will verify again after completion
+
+---
+
+## 5. API Users Table Migration
+
+Created `migrations/schema_tables/200_create_users_table.sql` for API authentication.
+
+### Table: `dbo.api_users`
+
+| Column          | Type          | Notes             |
+| --------------- | ------------- | ----------------- |
+| id              | INT IDENTITY  | Primary key       |
+| email           | NVARCHAR(255) | Unique, not null  |
+| hashed_password | NVARCHAR(255) | bcrypt hash       |
+| is_active       | BIT           | Default 1         |
+| is_superuser    | BIT           | Default 0         |
+| created_at      | DATETIME      | Default GETDATE() |
+| updated_at      | DATETIME      | Default GETDATE() |
+
+### Sample User
+
+- Email: `user@example.com`
+- Password: `password` (bcrypt cost 12)
+
+### ⚠️ API Code Update Required
+
+The API (`routers/auth.py`) currently queries `dbo.users`, but the migration created `dbo.api_users`. Need to update API to use the correct table name.
