@@ -1,5 +1,6 @@
 """
-Export sample rows from replicated sales and reference tables to JSON files.
+Export sample rows from ALL replicated tables to JSON files.
+All tables are now in the cloud warehouse.
 
 Usage:
     python scripts/export_sample_data.py --sample-size 10 --output-dir exports/sample_data
@@ -19,31 +20,15 @@ import pyodbc
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import config  # noqa: E402
 from scripts.replicate_reference_tables import DATE_FILTER_COLUMNS, load_schema  # noqa: E402
 
-# Cloud warehouse (sales tables)
-CLOUD_CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=10.0.1.194,1433;"
-    "DATABASE=MarryBrown_DW;"
-    "UID=etl_user;"
-    "PWD=ETL@MarryBrown2025!;"
-    "TrustServerCertificate=yes;"
-)
-
-# Local warehouse (reference tables)
-LOCAL_CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=localhost;"
-    "DATABASE=MarryBrown_DW;"
-    "UID=etl_user;"
-    "PWD=YourSecurePassword123!;"
-    "TrustServerCertificate=yes;"
-)
+# Cloud warehouse connection (all tables are now here)
+CLOUD_CONN_STR = config.build_connection_string(config.TARGET_SQL_CONFIG, trust_server_cert=True)
 
 SCHEMA_PREFIX = "dbo.com_5013_"
 
-# Sales tables (from verify_replication.py)
+# Sales tables (date-filtered)
 SALES_TABLES = [
     "APP_4_SALES",
     "APP_4_SALESITEM",
@@ -136,16 +121,19 @@ def main():
     args = parse_args()
     base_output = Path(args.output_dir)
 
-    print("Exporting sales table samples from cloud warehouse...")
+    print(f"Cloud warehouse: {config.TARGET_SQL_CONFIG['server']}")
+    print("=" * 50)
+
+    print("\n📊 Exporting sales table samples...")
     sales_samples = fetch_sample_rows(CLOUD_CONN_STR, SALES_TABLES, args.sample_size)
     write_samples(sales_samples, base_output / "sales")
 
-    print("\nExporting reference table samples from local warehouse...")
+    print("\n📚 Exporting reference table samples...")
     reference_tables = get_reference_tables()
-    ref_samples = fetch_sample_rows(LOCAL_CONN_STR, reference_tables, args.sample_size)
+    ref_samples = fetch_sample_rows(CLOUD_CONN_STR, reference_tables, args.sample_size)
     write_samples(ref_samples, base_output / "reference")
 
-    print("\nDone.")
+    print("\n✅ Done.")
 
 
 if __name__ == "__main__":

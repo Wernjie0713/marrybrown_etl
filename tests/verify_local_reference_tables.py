@@ -1,5 +1,5 @@
 """
-Verify row counts for reference tables replicated to the local warehouse.
+Verify row counts for reference tables replicated to the CLOUD warehouse.
 
 Reference tables are derived from the replica schema minus DATE_FILTER_COLUMNS
 as defined in scripts/replicate_reference_tables.py.
@@ -14,17 +14,11 @@ import pyodbc
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import config  # noqa: E402
 from scripts.replicate_reference_tables import DATE_FILTER_COLUMNS, load_schema  # noqa: E402
 
-# Local warehouse connection credentials
-CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=localhost;"
-    "DATABASE=MarryBrown_DW;"
-    "UID=etl_user;"
-    "PWD=YourSecurePassword123!;"
-    "TrustServerCertificate=yes;"
-)
+# Cloud warehouse connection (from config)
+CONN_STR = config.build_connection_string(config.TARGET_SQL_CONFIG, trust_server_cert=True)
 
 SCHEMA_PREFIX = "dbo.com_5013_"
 
@@ -39,10 +33,10 @@ def check_table_counts():
     tables = get_reference_tables()
 
     print("=" * 60)
-    print("Local Warehouse Reference Data Verification")
+    print("CLOUD Warehouse Reference Data Verification")
     print("=" * 60)
-    print("Server: localhost")
-    print("Database: MarryBrown_DW")
+    print(f"Server: {config.TARGET_SQL_CONFIG['server']}")
+    print(f"Database: {config.TARGET_SQL_CONFIG['database']}")
     print("=" * 60)
 
     try:
@@ -53,7 +47,7 @@ def check_table_counts():
 
     try:
         cursor = conn.cursor()
-        print("\nConnected to local warehouse.\n")
+        print("\nConnected to cloud warehouse.\n")
 
         print(f"{'Table Name':<40} {'Row Count':>15}")
         print("-" * 57)

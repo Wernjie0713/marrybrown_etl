@@ -58,3 +58,56 @@ Add to `.env`:
 ```ini
 XILNEX_APPLICATION_INTENT=ReadOnly
 ```
+
+### Verification ✅
+
+Ran `python tests/test_connections.py` on VM with `XILNEX_APPLICATION_INTENT=ReadOnly`:
+
+```
+✅ Successfully connected to Xilnex source database!
+   Server: xilnex-mercury.database.windows.net
+   Database: XilnexDB158
+   ApplicationIntent: ReadOnly
+   Connection Type: 🔄 REPLICA (Read-Only)
+```
+
+**Result:** ETL is now connected to the read-only replica. Future replication runs will not impact the primary POS database.
+
+---
+
+## 3. Complete Warehouse Verification
+
+Ran reference table replication from VM via replica connection, then verified all tables:
+
+```
+python scripts/replicate_reference_tables.py --full-table
+python tests/verify_replication.py
+```
+
+### Current Data in Cloud Warehouse
+
+| Category        | Table                        |           Rows |
+| --------------- | ---------------------------- | -------------: |
+| **Sales**       | APP_4_SALES                  |      2,853,438 |
+|                 | APP_4_SALESITEM              |      7,900,000 |
+|                 | APP_4_PAYMENT                |         44,125 |
+|                 | APP_4_VOIDSALESITEM          |          2,912 |
+|                 | APP_4_VOUCHER                |         73,670 |
+|                 | _Others (CN/DN/EPayment)_    |              0 |
+| **Subtotal**    |                              | **10,874,145** |
+| **Reference**   | APP_4_POINTRECORD            |      3,734,108 |
+|                 | APP_4_CUSTOMER               |        905,321 |
+|                 | APP_4_STOCK                  |        175,297 |
+|                 | APP_4_ITEM                   |         10,304 |
+|                 | APP_4_CASHIER_DRAWER         |          3,102 |
+|                 | APP_4_VOUCHER_MASTER         |          1,806 |
+|                 | LOCATION_DETAIL              |            315 |
+|                 | _Others (Delivery/Extended)_ |              0 |
+| **Subtotal**    |                              |  **4,830,253** |
+| **GRAND TOTAL** |                              | **15,704,398** |
+
+### Scripts Updated
+
+- `tests/verify_replication.py`: Now checks ALL 19 tables (sales + reference) with subtotals.
+- `tests/verify_local_reference_tables.py`: Updated to use `config.py` for connection.
+- `config.py`: Default target changed to cloud server `10.0.1.194,1433`.

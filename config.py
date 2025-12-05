@@ -16,11 +16,11 @@ AZURE_SQL_CONFIG = {
 }
 
 TARGET_SQL_CONFIG = {
-    "server": os.getenv("TARGET_SERVER", "localhost"),
+    "server": os.getenv("TARGET_SERVER", "10.0.1.194,1433"),
     "database": os.getenv("TARGET_DATABASE", "MarryBrown_DW"),
     "username": os.getenv("TARGET_USERNAME", "etl_user"),
-    "password": os.getenv("TARGET_PASSWORD", "yourStrong(!)Password"),
-    "driver": "{" + os.getenv("TARGET_DRIVER", "ODBC Driver 18 for SQL Server") + "}",
+    "password": os.getenv("TARGET_PASSWORD", "ETL@MarryBrown2025!"),
+    "driver": "{" + os.getenv("TARGET_DRIVER", "ODBC Driver 17 for SQL Server") + "}",
 }
 
 
