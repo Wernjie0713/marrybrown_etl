@@ -178,3 +178,93 @@ Updated API authentication to use `dbo.api_users`:
 - `routers/auth.py`: All queries now point to `dbo.api_users`; removed `full_name` field
 - `security.py`: `User` model trimmed; `get_user_by_id` selects from `dbo.api_users`
 - `.env`: Updated with cloud DB connection (`10.0.1.194,1433`)
+
+### ✅ API Testing Verified (5 Dec 2025, 3:00 PM)
+
+Tested via Swagger UI at `http://localhost:8100/docs`:
+
+| Endpoint              | Status     | Notes                        |
+| --------------------- | ---------- | ---------------------------- |
+| POST /api/auth/signin | ✅ Working | JWT token returned           |
+| GET /api/auth/me      | ✅ Working | User info with Bearer token  |
+| GET /locations        | ✅ Working | Returns 319 active locations |
+
+**Sample Response (Locations):**
+
+```json
+[
+  {"location_key": 225, "name": "MB A FAMOSA", "address": null},
+  {"location_key": 74, "name": "MB AIR BIRU", "address": null},
+  ...
+]
+```
+
+API is now fully functional with cloud database connection.
+
+---
+
+## 6. Sync Sales API Implementation
+
+### Objective
+
+Create a **Sync Sales API** endpoint (`GET /apps/v2/sync/sales`) that mimics the original Xilnex API response structure, allowing the new system to serve as a drop-in replacement for legacy integrations.
+
+### Implementation Details
+
+- **Endpoint:** `GET /apps/v2/sync/sales`
+- **Router:** `routers/sync_sales.py`
+- **Source Tables:** 1:1 Replica tables (`dbo.com_5013_APP_4_SALES`, `APP_4_SALESITEM`, `APP_4_PAYMENT`, `APP_4_CUSTOMER`).
+- **Pagination:** Uses `starttimestamp` (based on `UPDATE_TIMESTAMP` rowversion hex) and `limit` (max 1000).
+- **Response Structure:** Matches `docs/sync_sales_api_response_schema.json` (Xilnex format).
+
+### Key Features
+
+1.  **Data Mapping:**
+    - **Sales:** Joined with Items, Payments, and Customers.
+    - **Timestamps:** Formatted to `YYYY-MM-DDTHH:MM:SS.000Z`.
+    - **Outlet Info:** Mapped from `STRING_EXTEND_2` (ID) and `STRING_EXTEND_1` (Code).
+    - **Status:** Mapped from `SALES_STATUS` and `PAYMENT_STATUS`.
+2.  **Logic:**
+    - `totalQuantity`: Sum of item quantities.
+    - `lastTimestamp`: Returns the maximum `UPDATE_TIMESTAMP` from the batch (or input `starttimestamp` if no results).
+    - `paxNumber`: Set to `null` (no reliable source).
+    - **Payments:** Default to `Saved` status; `Void` if `BOOL_ISVOID` is true. Outlet falls back to sale location if missing.
+3.  **Compatibility:** Accepts `mode` parameter (ignored) for backward compatibility.
+
+### Verification
+
+- **Compilation:** `python -m py_compile routers/sync_sales.py main.py` (Successful).
+- **Integration:** Wired into `main.py`.
+- **Testing Status:** Implemented but not yet runtime tested.
+
+### Usage
+
+```http
+GET /apps/v2/sync/sales?limit=1000&starttimestamp=0x0000000000000000
+Authorization: Bearer <token>
+```
+
+### Refinement: Date-Based Filtering (5 Dec 2025, 3:55 PM)
+
+Modified the API to use **date-based filtering** instead of rowversion/timestamp pagination, as per user request.
+
+- **Change:** Replaced `starttimestamp` parameter with `start_date` (YYYY-MM-DD).
+- **Filtering:** Queries `dbo.com_5013_APP_4_SALES` where `DATETIME__SALES_DATE >= :start_date`.
+- **Ordering:** `DATETIME__SALES_DATE ASC`, `ID ASC`.
+- **Response:** `lastTimestamp` is now returned as `null`.
+- **Usage:**
+  ```
+
+  ```
+
+### Fixes: Outlet Name & Remark (5 Dec 2025, 4:50 PM)
+
+Implemented fixes to align the API response with the schema:
+
+1.  **Outlet Name:**
+    - Joined `dbo.com_5013_APP_4_SALES` with `dbo.com_5013_LOCATION_DETAIL` on `SALE_LOCATION = ID`.
+    - Mapped `outlet` field to `LOCATIONNAME` (human-readable name) instead of the UUID.
+    - Fallback: Uses UUID if name lookup fails.
+2.  **Remark Handling:**
+    - Updated logic to return `null` (JSON null) instead of `""` (empty string) when remarks are empty or whitespace.
+    - Applied to both sales and item-level remarks.
