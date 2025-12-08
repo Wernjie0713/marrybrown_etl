@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--end-date",
         required=True,
-        help="End date (exclusive) in YYYY-MM-DD format.",
+        help="End date (inclusive) in YYYY-MM-DD format.",
     )
     parser.add_argument(
         "--max-workers",
@@ -76,14 +76,26 @@ def main():
     args = parse_args()
     output_dir = Path(config.EXPORT_DIR)
 
+    # Parse dates to handle inclusive end date logic
+    from datetime import datetime, timedelta
+
+    start_dt = datetime.strptime(args.start_date, "%Y-%m-%d").date()
+    end_dt = datetime.strptime(args.end_date, "%Y-%m-%d").date()
+
+    # Add 1 day to end_date to make it inclusive (because underlying logic is exclusive)
+    end_dt_exclusive = end_dt + timedelta(days=1)
+
+    start_date_str = start_dt.isoformat()
+    end_date_str = end_dt_exclusive.isoformat()
+
     for table in SALES_TABLES:
         print(f"\n{'='*70}")
         print(f"[RUN] Replicating {table}")
         print(f"{'='*70}")
         replicate_monthly_parallel(
             table_name=table,
-            start_date=args.start_date,
-            end_date=args.end_date,
+            start_date=start_date_str,
+            end_date=end_date_str,
             output_dir=output_dir,
             max_workers=args.max_workers,
             chunk_size=args.chunk_size,

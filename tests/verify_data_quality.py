@@ -67,7 +67,8 @@ TARGET_CONN_STR = config.build_connection_string(config.TARGET_SQL_CONFIG, trust
 SOURCE_SCHEMA = "COM_5013"
 TARGET_SCHEMA = "dbo"
 TARGET_PREFIX = "com_5013_"
-DATE_CUTOFF = "2025-10-01"
+START_DATE = "2025-08-01"
+END_DATE = "2025-10-31"
 SAMPLE_SIZE = 5
 NUM_TOLERANCE = decimal.Decimal("0.0001")
 
@@ -144,8 +145,8 @@ def random_keys(
     where_clause = ""
     params: List[Any] = []
     if date_column:
-        where_clause = f" WHERE [{date_column}] >= ?"
-        params.append(DATE_CUTOFF)
+        where_clause = f" WHERE [{date_column}] >= ? AND [{date_column}] <= ?"
+        params.extend([START_DATE, END_DATE])
     query = f"SELECT TOP {SAMPLE_SIZE} [{key_col}] FROM {table_sql}{where_clause} ORDER BY NEWID()"
     if params:
         cursor.execute(query, params)
@@ -167,9 +168,9 @@ def compare_counts(
     target_where = ""
     params = []
     if date_column:
-        source_where = f" WHERE [{date_column}] >= ?"
-        target_where = f" WHERE [{date_column}] >= ?"
-        params = [DATE_CUTOFF]
+        source_where = f" WHERE [{date_column}] >= ? AND [{date_column}] <= ?"
+        target_where = f" WHERE [{date_column}] >= ? AND [{date_column}] <= ?"
+        params = [START_DATE, END_DATE]
 
     if params:
         source_cursor.execute(f"SELECT COUNT(*) FROM {source_table}{source_where}", params)
