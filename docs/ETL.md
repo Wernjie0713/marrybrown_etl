@@ -25,6 +25,10 @@ python run_replica_etl.py --start 2024-01-01 --end 2024-12-31
 
 # T-1 fix check only
 python run_replica_etl.py --check-fixes --date 2025-11-25
+
+# Bulk sales replication (all sales tables, sequential)
+# Note: --end-date is INCLUSIVE
+python scripts/replicate_all_sales_data.py --start-date 2025-10-01 --end-date 2025-10-31 --max-workers 2
 ```
 
 ### Tables Replicated (Phase 1 - 19 tables)

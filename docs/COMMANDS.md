@@ -30,6 +30,16 @@ python scripts/replicate_monthly_parallel_streaming.py APP_4_SALES --start-date 
 python scripts/replicate_monthly_parallel_streaming.py APP_4_SALES --start-date 2024-01-01 --end-date 2024-12-31 --resume --max-workers 2
 ```
 
+### All Sales Data (Sequential)
+
+Orchestrates replication for **all 10 sales tables** sequentially.
+
+```bash
+# Replicate all sales tables for a date range
+# Note: --end-date is INCLUSIVE
+python scripts/replicate_all_sales_data.py --start-date 2025-10-01 --end-date 2025-10-31 --max-workers 2
+```
+
 **Note:**
 
 - Use `--max-workers 2` for best balance. Higher values (3+) may cause SQL Server deadlocks.
