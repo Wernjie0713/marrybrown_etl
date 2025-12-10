@@ -12,7 +12,7 @@ AZURE_SQL_CONFIG = {
     "password": os.getenv("XILNEX_PASSWORD", "your_password"),
     "driver": "{" + os.getenv("XILNEX_DRIVER", "ODBC Driver 18 for SQL Server") + "}",
     # Set to "ReadOnly" to connect to Xilnex replica (avoids impacting primary POS database)
-    "application_intent": os.getenv("XILNEX_APPLICATION_INTENT", None),
+    "application_intent": os.getenv("XILNEX_APPLICATION_INTENT", "ReadOnly"),
 }
 
 TARGET_SQL_CONFIG = {

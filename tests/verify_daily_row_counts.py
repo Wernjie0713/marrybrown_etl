@@ -45,7 +45,7 @@ config = _import_config()
 # ---------------------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------------------
-START_DATE = date(2025, 8, 1)
+START_DATE = date(2025, 1, 1)
 END_DATE = date(2025, 10, 31)
 TABLES_TO_CHECK = {
     "APP_4_SALES": "DATETIME__SALES_DATE",
