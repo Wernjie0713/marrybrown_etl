@@ -331,6 +331,24 @@
         {"name": "VOUCHER_MASTER_ID", "type": "bigint", "notes": "Links to APP_4_VOUCHER_MASTER for promotion metadata."},
         {"name": "IS_API_VOUCHER", "type": "tinyint", "notes": "Flags vouchers originated from partner API integrations."}
       ]
+    },
+    {
+      "name": "APP_4_EODLOG",
+      "module": "Sales & Transactions",
+      "purpose": "End-of-Day session log. Stores EOD session metadata including the business date which determines how transactions are grouped in EOD reports.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key; EODLOGID referenced by APP_4_SALES.EODLOGID."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Store GUID referencing LOCATION_DETAIL.ID."},
+        {"name": "SITEID", "type": "varchar", "notes": "Terminal/site identifier."},
+        {"name": "CASHIERDRAWERID", "type": "varchar", "notes": "Drawer identifier for the session."},
+        {"name": "CASHIER", "type": "varchar", "notes": "Staff who operated the session."},
+        {"name": "DATETIME__OPENINGDATE", "type": "date", "notes": "Session opening date."},
+        {"name": "DATETIME__CLOSINGDATE", "type": "date", "notes": "Session closing date."},
+        {"name": "DATETIME__BUSINESS_DATE", "type": "date", "notes": "Business date this session represents - critical for EOD report grouping."},
+        {"name": "OPENEDBY", "type": "varchar", "notes": "Staff who opened the session."},
+        {"name": "CLOSEDBY", "type": "varchar", "notes": "Staff who closed the session."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."}
+      ]
     }
   ]
 }
