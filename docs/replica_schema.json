@@ -349,6 +349,26 @@
         {"name": "CLOSEDBY", "type": "varchar", "notes": "Staff who closed the session."},
         {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."}
       ]
+    },
+    {
+      "name": "APP_4_DEPOSITSO",
+      "module": "Sales & Transactions",
+      "purpose": "Deposit Sales Order data (requested for investigation).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "FIELDTITLE", "type": "varchar", "notes": "Title of the field."},
+        {"name": "FIELDVALUE", "type": "varchar", "notes": "Value of the field."},
+        {"name": "DOUBLE_DEPOSIT_PERCENTAGE", "type": "decimal", "notes": "Deposit percentage."},
+        {"name": "DOUBLE_DEPOSIT_AMOUNT", "type": "decimal", "notes": "Deposit amount."},
+        {"name": "INT_EXTEND_1", "type": "decimal", "notes": "Extended int field 1."},
+        {"name": "INT_EXTEND_2", "type": "int", "notes": "Extended int field 2."},
+        {"name": "INT_EXTEND_3", "type": "int", "notes": "Extended int field 3."},
+        {"name": "STRING_EXTEND_1", "type": "varchar", "notes": "Extended string field 1."},
+        {"name": "STRING_EXTEND_2", "type": "varchar", "notes": "Extended string field 2."},
+        {"name": "STRING_EXTEND_3", "type": "varchar", "notes": "Extended string field 3."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
+      ]
     }
   ]
 }
