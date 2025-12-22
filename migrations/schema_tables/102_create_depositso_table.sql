@@ -1,0 +1,34 @@
+-- Migration: Create APP_4_DEPOSITSO table for Deposit Sales Order tracking
+-- This table stores deposit configuration and rules for sales orders
+
+PRINT 'Creating APP_4_DEPOSITSO table';
+GO
+
+IF OBJECT_ID('dbo.com_5013_APP_4_DEPOSITSO', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.com_5013_APP_4_DEPOSITSO (
+        ID BIGINT NOT NULL,
+        FIELDTITLE VARCHAR(255) NULL,
+        FIELDVALUE VARCHAR(255) NULL,
+        DOUBLE_DEPOSIT_PERCENTAGE DECIMAL(16,4) NULL,
+        DOUBLE_DEPOSIT_AMOUNT DECIMAL(16,4) NULL,
+        INT_EXTEND_1 DECIMAL(16,4) NULL,
+        INT_EXTEND_2 INT NULL,
+        INT_EXTEND_3 INT NULL,
+        STRING_EXTEND_1 VARCHAR(255) NULL,
+        STRING_EXTEND_2 VARCHAR(255) NULL,
+        STRING_EXTEND_3 VARCHAR(255) NULL,
+        WBDELETED TINYINT NULL,
+        UPDATE_TIMESTAMP BINARY(8) NULL,
+        CONSTRAINT PK_com_5013_APP_4_DEPOSITSO PRIMARY KEY CLUSTERED (ID)
+    );
+    PRINT 'Table dbo.com_5013_APP_4_DEPOSITSO created.';
+END
+ELSE
+BEGIN
+    PRINT 'Table dbo.com_5013_APP_4_DEPOSITSO already exists.';
+END;
+GO
+
+PRINT 'APP_4_DEPOSITSO migration complete.';
+GO
