@@ -39,6 +39,11 @@ def parse_args() -> argparse.Namespace:
         description="Replicate all sales-related tables sequentially using monthly streaming."
     )
     parser.add_argument(
+        "--table",
+        action="append",
+        help="Specific table(s) to process (e.g., APP_4_SALESITEM). Can be repeated.",
+    )
+    parser.add_argument(
         "--start-date",
         required=True,
         help="Start date (inclusive) in YYYY-MM-DD format.",
@@ -90,7 +95,9 @@ def main():
     start_date_str = start_dt.isoformat()
     end_date_str = end_dt_exclusive.isoformat()
 
-    for table in SALES_TABLES:
+    tables = args.table if args.table else SALES_TABLES
+
+    for table in tables:
         print(f"\n{'='*70}")
         print(f"[RUN] Replicating {table}")
         print(f"{'='*70}")
