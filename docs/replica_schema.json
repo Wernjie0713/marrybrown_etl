@@ -369,6 +369,100 @@
         {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
         {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
       ]
+    },
+    {
+      "name": "APP_4_PRODUCTMATRIX",
+      "module": "Products & Inventory",
+      "purpose": "Per-location price and cost matrix for items.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEMID", "type": "varchar", "notes": "Item code for pricing rows."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "DOUBLE_SALE_PRICE", "type": "decimal", "notes": "List price."},
+        {"name": "DOUBLE_MANUFACTURER_SUGGESTED_RETAIL_PRICE", "type": "decimal", "notes": "MSRP."},
+        {"name": "DOUBLE_CUSTOM_PRICE", "type": "decimal", "notes": "Custom price."},
+        {"name": "DOUBLE_WEB_PRICE", "type": "decimal", "notes": "Web price."},
+        {"name": "DOUBLE_WEB_DEALER_PRICE", "type": "decimal", "notes": "Web dealer price."},
+        {"name": "DOUBLE_COST", "type": "decimal", "notes": "Unit cost."},
+        {"name": "DOUBLE_AVG_COST", "type": "decimal", "notes": "Average cost."},
+        {"name": "DOUBLE_FIFO_COST", "type": "decimal", "notes": "FIFO cost."},
+        {"name": "DOUBLE_LIFO_COST", "type": "decimal", "notes": "LIFO cost."},
+        {"name": "DOUBLE_LAST_STOCK_IN_COST", "type": "decimal", "notes": "Last stock-in cost."},
+        {"name": "DATETIME__DATE_CREATED", "type": "date", "notes": "Row creation date."},
+        {"name": "PRICE_EXPIRY_DATE", "type": "varchar", "notes": "Price expiry date string."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
+      ]
+    },
+    {
+      "name": "APP_4_LOCATIONPRICE",
+      "module": "Products & Inventory",
+      "purpose": "Location-level price list and custom costs.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_ID", "type": "varchar", "notes": "Item code or ID."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "DOUBLE_SALE_PRICE", "type": "decimal", "notes": "List price."},
+        {"name": "DOUBLE_EMPLOYEE_PRICE", "type": "decimal", "notes": "Employee price."},
+        {"name": "DOUBLE_WHOLESALE_PRICE", "type": "decimal", "notes": "Wholesale price."},
+        {"name": "DOUBLE_CUSTOM_PRICE", "type": "decimal", "notes": "Custom price."},
+        {"name": "DOUBLE_MANUFACTURER_SUGGESTED_RETAIL_PRICE", "type": "decimal", "notes": "MSRP."},
+        {"name": "DOUBLE_WEB_PRICE", "type": "decimal", "notes": "Web price."},
+        {"name": "DOUBLE_WEB_DEALER_PRICE", "type": "decimal", "notes": "Web dealer price."},
+        {"name": "DOUBLE_CUSTOM_COST", "type": "decimal", "notes": "Custom cost."},
+        {"name": "DOUBLE_FOREIGN_COST", "type": "decimal", "notes": "Foreign currency cost."},
+        {"name": "PRICE_EXPIRY_DATE", "type": "varchar", "notes": "Price expiry date string."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
+      ]
+    },
+    {
+      "name": "APP_4_RECIPESUMMARY",
+      "module": "Sales & Transactions",
+      "purpose": "Recipe ingredient cost history for package items.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_ID", "type": "bigint", "notes": "Package item reference."},
+        {"name": "RM_ITEM_ID", "type": "bigint", "notes": "Ingredient item reference."},
+        {"name": "DOUBLE_QUANTITY", "type": "decimal", "notes": "Ingredient quantity."},
+        {"name": "DOUBLE_COST", "type": "decimal", "notes": "Ingredient cost."},
+        {"name": "SALES_TYPE", "type": "varchar", "notes": "Sales type for recipe context."},
+        {"name": "DATETIME__TRANSACTION_DATETIME", "type": "date", "notes": "Transaction date."},
+        {"name": "PAIR_ID", "type": "bigint", "notes": "Pair identifier for recipe rows."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
+      ]
+    },
+    {
+      "name": "APP_4_SALESQUANTITIES",
+      "module": "Sales & Transactions",
+      "purpose": "Daily item-level sales quantity and amount summary.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_ID", "type": "varchar", "notes": "Item code or ID."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "DOUBLE_SOLD_QTY", "type": "decimal", "notes": "Quantity sold."},
+        {"name": "DOUBLE_SOLD_AMOUNT", "type": "decimal", "notes": "Total sold amount."},
+        {"name": "SALES_DATE", "type": "varchar", "notes": "Sales date string."},
+        {"name": "SDAY", "type": "int", "notes": "Sales day."},
+        {"name": "SMONTH", "type": "int", "notes": "Sales month."},
+        {"name": "SYEAR", "type": "int", "notes": "Sales year."},
+        {"name": "LAST_UPDATE_DATE", "type": "varchar", "notes": "Last update date string."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
+      ]
+    },
+    {
+      "name": "APP_4_COMBOITEMPRICE",
+      "module": "Products & Inventory",
+      "purpose": "Combo item price mapping.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "COMBOITEMID", "type": "bigint", "notes": "Combo definition ID."},
+        {"name": "ITEMID", "type": "bigint", "notes": "Item ID within the combo."},
+        {"name": "PRICE", "type": "decimal", "notes": "Combo item price."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
+      ]
     }
   ]
 }
