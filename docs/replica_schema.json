@@ -597,6 +597,46 @@
         {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Channel filter."},
         {"name": "SALES_TYPE", "type": "varchar", "notes": "Sales type filter."}
       ]
+    },
+    {
+      "name": "APP_4_MENUITEMAVAILABILITYCONFIG",
+      "module": "Products & Inventory",
+      "purpose": "Menu item availability windows (day-of-week + active flags).",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_ID", "type": "bigint", "notes": "Item reference (APP_4_ITEM.ID)."},
+        {"name": "DATETIMEUTC_DATEFROM", "type": "datetime", "notes": "Availability window start (UTC)."},
+        {"name": "DATETIMEUTC_DATETO", "type": "datetime", "notes": "Availability window end (UTC)."},
+        {"name": "BOOL_MONDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_TUESDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_WEDNESDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_THURSDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_FRIDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_SATURDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_SUNDAY", "type": "tinyint", "notes": "Day-of-week flag."},
+        {"name": "BOOL_IS_ACTIVE", "type": "tinyint", "notes": "Active flag."},
+        {"name": "BOOL_IS_INACTIVE", "type": "tinyint", "notes": "Inactive flag."},
+        {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Rowversion marker."}
+      ]
+    },
+    {
+      "name": "APP_4_PRICELOG",
+      "module": "Products & Inventory",
+      "purpose": "Price history per item/location and scheme.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_ID", "type": "varchar", "notes": "Item reference (string ID)."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "DATETIME", "type": "varchar", "notes": "Price change timestamp (string)."},
+        {"name": "DATETIME__DATETIME", "type": "date", "notes": "Parsed date for DATETIME."},
+        {"name": "PRICE_SCHEME_ENUM", "type": "varchar", "notes": "Price scheme indicator."},
+        {"name": "DOUBLE_PRICE_VALUE", "type": "decimal", "notes": "Current price value."},
+        {"name": "DOUBLE_PREV_PRICE_VALUE", "type": "decimal", "notes": "Previous price value."},
+        {"name": "DOUBLE_PREV_COST", "type": "decimal", "notes": "Previous cost value."},
+        {"name": "DOUBLE_POST_COST", "type": "decimal", "notes": "Post-change cost value."},
+        {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Rowversion marker."}
+      ]
     }
   ]
 }

@@ -1822,6 +1822,7 @@
   "COM_5013.APP_4_ADVANCEDISCOUNT": {
     "schema": "COM_5013",
     "table": "APP_4_ADVANCEDISCOUNT",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -3022,6 +3023,7 @@
   "COM_5013.APP_4_API_PRODUCT_CATEGORY": {
     "schema": "COM_5013",
     "table": "APP_4_API_PRODUCT_CATEGORY",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -3284,6 +3286,7 @@
   "COM_5013.APP_4_API_PRODUCT_SUB_CATEGORY": {
     "schema": "COM_5013",
     "table": "APP_4_API_PRODUCT_SUB_CATEGORY",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -3434,6 +3437,7 @@
   "COM_5013.APP_4_API_PRODUCTITEM": {
     "schema": "COM_5013",
     "table": "APP_4_API_PRODUCTITEM",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -3888,6 +3892,7 @@
   "COM_5013.APP_4_API_PRODUCTITEMTAG": {
     "schema": "COM_5013",
     "table": "APP_4_API_PRODUCTITEMTAG",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -3982,6 +3987,7 @@
   "COM_5013.APP_4_API_PRODUCTTAG": {
     "schema": "COM_5013",
     "table": "APP_4_API_PRODUCTTAG",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -21132,6 +21138,7 @@
   "COM_5013.APP_4_DELIVERY_INTEGRATION_TRANSACTION": {
     "schema": "COM_5013",
     "table": "APP_4_DELIVERY_INTEGRATION_TRANSACTION",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -24118,6 +24125,7 @@
   "COM_5013.APP_4_ECOMM_PRODUCT_TAXONOMY": {
     "schema": "COM_5013",
     "table": "APP_4_ECOMM_PRODUCT_TAXONOMY",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -43400,6 +43408,7 @@
   "COM_5013.APP_4_MENUBRANCHASSORTMENT": {
     "schema": "COM_5013",
     "table": "APP_4_MENUBRANCHASSORTMENT",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -43644,6 +43653,7 @@
   "COM_5013.APP_4_MENUDYNAMICITEM": {
     "schema": "COM_5013",
     "table": "APP_4_MENUDYNAMICITEM",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -43888,6 +43898,7 @@
   "COM_5013.APP_4_MENUITEMAVAILABILITYLOCATION": {
     "schema": "COM_5013",
     "table": "APP_4_MENUITEMAVAILABILITYLOCATION",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -43934,6 +43945,7 @@
   "COM_5013.APP_4_MENUITEMAVAILABILITYMAPPING": {
     "schema": "COM_5013",
     "table": "APP_4_MENUITEMAVAILABILITYMAPPING",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -43988,6 +44000,7 @@
   "COM_5013.APP_4_MENUITEMAVAILABILITYORDERSOURCE": {
     "schema": "COM_5013",
     "table": "APP_4_MENUITEMAVAILABILITYORDERSOURCE",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -44026,6 +44039,7 @@
   "COM_5013.APP_4_MENUITEMAVAILABILITYTIMECONFIG": {
     "schema": "COM_5013",
     "table": "APP_4_MENUITEMAVAILABILITYTIMECONFIG",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -45332,6 +45346,7 @@
   "COM_5013.APP_4_MENUPROFILESOURCE": {
     "schema": "COM_5013",
     "table": "APP_4_MENUPROFILESOURCE",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -54510,6 +54525,7 @@
   "COM_5013.APP_4_PRICECHANGEITEM": {
     "schema": "COM_5013",
     "table": "APP_4_PRICECHANGEITEM",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -57782,6 +57798,7 @@
   "COM_5013.APP_4_PROMOITEM": {
     "schema": "COM_5013",
     "table": "APP_4_PROMOITEM",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -58020,6 +58037,7 @@
   "COM_5013.APP_4_PROMORULE": {
     "schema": "COM_5013",
     "table": "APP_4_PROMORULE",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -58390,6 +58408,7 @@
   "COM_5013.APP_4_PROMOTIONSETTING": {
     "schema": "COM_5013",
     "table": "APP_4_PROMOTIONSETTING",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -61544,6 +61563,7 @@
   "COM_5013.APP_4_QUICKITEMPROFILE": {
     "schema": "COM_5013",
     "table": "APP_4_QUICKITEMPROFILE",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -61630,6 +61650,7 @@
   "COM_5013.APP_4_QUICKITEMPROFILEMAPPING": {
     "schema": "COM_5013",
     "table": "APP_4_QUICKITEMPROFILEMAPPING",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -78442,6 +78463,7 @@
   "COM_5013.APP_4_SALESDELIVERY": {
     "schema": "COM_5013",
     "table": "APP_4_SALESDELIVERY",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
@@ -80506,6 +80528,7 @@
   "COM_5013.APP_4_SALESORDER": {
     "schema": "COM_5013",
     "table": "APP_4_SALESORDER",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -81464,6 +81487,7 @@
   "COM_5013.APP_4_SALESORDERITEM": {
     "schema": "COM_5013",
     "table": "APP_4_SALESORDERITEM",
+    "codex_labels": ["no_2025"],
     "columns": [
       {
         "name": "ID",
@@ -97182,6 +97206,7 @@
   "COM_5013.APP_4_TABLEAREAMENUPROFILEMAPPING": {
     "schema": "COM_5013",
     "table": "APP_4_TABLEAREAMENUPROFILEMAPPING",
+    "codex_labels": ["empty"],
     "columns": [
       {
         "name": "ID",
