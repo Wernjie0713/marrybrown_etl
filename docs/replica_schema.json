@@ -463,6 +463,51 @@
         {"name": "WBDELETED", "type": "tinyint", "notes": "Soft delete flag."},
         {"name": "UPDATE_TIMESTAMP", "type": "timestamp", "notes": "Update timestamp."}
       ]
+    },
+    {
+      "name": "APP_4_ORDER",
+      "module": "Sales & Transactions",
+      "purpose": "Order header table (pre-sales) with order source and delivery metadata.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ORDER_ID", "type": "varchar", "notes": "Order identifier."},
+        {"name": "ORDER_DATE", "type": "varchar", "notes": "Order date string."},
+        {"name": "DATETIME__ORDER_DATE", "type": "date", "notes": "Order date parsed."},
+        {"name": "ORDER_TIME", "type": "varchar", "notes": "Order time string."},
+        {"name": "ORDER_STATUS", "type": "varchar", "notes": "Order status."},
+        {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Channel/source identifier."},
+        {"name": "ORDER_TYPE", "type": "varchar", "notes": "Order type (e.g., Dine In, Delivery)."},
+        {"name": "DELIVERY_TYPE", "type": "varchar", "notes": "Delivery sub-type or provider."},
+        {"name": "LOCATION_ID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "SALES_NO", "type": "varchar", "notes": "Linked sales receipt number."},
+        {"name": "DOUBLE_TOTAL_AMOUNT", "type": "decimal", "notes": "Order total amount."},
+        {"name": "DOUBLE_NET_AMOUNT", "type": "decimal", "notes": "Order net amount."},
+        {"name": "DOUBLE_COST", "type": "decimal", "notes": "Order-level cost."},
+        {"name": "DOUBLE_PROFIT", "type": "decimal", "notes": "Order-level profit."}
+      ]
+    },
+    {
+      "name": "APP_4_ORDERITEM",
+      "module": "Sales & Transactions",
+      "purpose": "Order line items with pricing, category, and source metadata.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ORDER_ID", "type": "varchar", "notes": "Order identifier."},
+        {"name": "ITEM_ID", "type": "varchar", "notes": "Item identifier."},
+        {"name": "ITEM_NAME", "type": "varchar", "notes": "Item name."},
+        {"name": "ITEM_TYPE", "type": "varchar", "notes": "Item type."},
+        {"name": "ITEM_CATEGORY", "type": "varchar", "notes": "Item category."},
+        {"name": "QUANTITY", "type": "decimal", "notes": "Order quantity."},
+        {"name": "DOUBLE_PRICE", "type": "decimal", "notes": "Unit price."},
+        {"name": "DOUBLE_ENTER_PRICE", "type": "decimal", "notes": "Entered price."},
+        {"name": "DOUBLE_ORDER_PRICE", "type": "decimal", "notes": "Order price."},
+        {"name": "DOUBLE_SUB_TOTAL", "type": "varchar", "notes": "Line subtotal (string)."},
+        {"name": "DOUBLE_TOTAL_TAX_AMOUNT", "type": "varchar", "notes": "Line tax amount (string)."},
+        {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Order source/channel."},
+        {"name": "DELIVERY_TYPE", "type": "varchar", "notes": "Delivery sub-type."},
+        {"name": "BOOL_ISPACKAGE", "type": "tinyint", "notes": "Package flag."},
+        {"name": "REF_SALESITEM_ID", "type": "varchar", "notes": "Linked sales item ID when available."}
+      ]
     }
   ]
 }
