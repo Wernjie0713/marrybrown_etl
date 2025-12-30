@@ -508,6 +508,95 @@
         {"name": "BOOL_ISPACKAGE", "type": "tinyint", "notes": "Package flag."},
         {"name": "REF_SALESITEM_ID", "type": "varchar", "notes": "Linked sales item ID when available."}
       ]
+    },
+    {
+      "name": "APP_4_MENUPROFILE",
+      "module": "Products & Inventory",
+      "purpose": "Menu profile schedule and activation windows per location.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "PROFILENAME", "type": "varchar", "notes": "Menu profile name."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "BOOL_ISACTIVATED", "type": "tinyint", "notes": "Activation flag."},
+        {"name": "DATESTART", "type": "varchar", "notes": "Start date string."},
+        {"name": "DATEEND", "type": "varchar", "notes": "End date string."},
+        {"name": "TIMESTART", "type": "varchar", "notes": "Start time string."},
+        {"name": "TIMEEND", "type": "varchar", "notes": "End time string."},
+        {"name": "DATETIME_MODIFIED", "type": "datetime", "notes": "Last modified timestamp."}
+      ]
+    },
+    {
+      "name": "APP_4_MENUPROFILEMAPPING",
+      "module": "Products & Inventory",
+      "purpose": "Mapping between menu profiles and main/sub categories or modifiers.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "MENUPROFILEID", "type": "bigint", "notes": "Menu profile ID."},
+        {"name": "MENUMAINCATEGORYID", "type": "bigint", "notes": "Main category ID."},
+        {"name": "MENUSUBCATEGORYID", "type": "bigint", "notes": "Subcategory ID."},
+        {"name": "MENUITEMMODIFIERID", "type": "bigint", "notes": "Modifier group ID."}
+      ]
+    },
+    {
+      "name": "APP_4_MENUMAINCATEGORY",
+      "module": "Products & Inventory",
+      "purpose": "Top-level menu category definitions.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "CATEGORYNAME", "type": "varchar", "notes": "Display name."},
+        {"name": "INT_ORDER", "type": "int", "notes": "Ordering index."},
+        {"name": "COLOR_HEX", "type": "varchar", "notes": "UI color."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Outlet GUID."}
+      ]
+    },
+    {
+      "name": "APP_4_MENUSUBCATEGORY",
+      "module": "Products & Inventory",
+      "purpose": "Subcategory menu definitions and grouping rules.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "SUBITEMID", "type": "bigint", "notes": "Linked item ID."},
+        {"name": "CATEGORY", "type": "varchar", "notes": "Parent category name."},
+        {"name": "DISPLAYNAME", "type": "varchar", "notes": "Subcategory display name."},
+        {"name": "GROUPMATCH", "type": "varchar", "notes": "Grouping rule type."},
+        {"name": "GROUPVALUE", "type": "varchar", "notes": "Grouping rule value."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "BOOL_ISCOMBO", "type": "tinyint", "notes": "Combo flag."}
+      ]
+    },
+    {
+      "name": "APP_4_MENUITEMMODIFIER",
+      "module": "Products & Inventory",
+      "purpose": "Modifier group definitions for menu items.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEMMODIFIERID", "type": "bigint", "notes": "Modifier item ID."},
+        {"name": "SUBITEMID", "type": "bigint", "notes": "Parent subcategory item ID."},
+        {"name": "HEADERLABEL", "type": "varchar", "notes": "Modifier group label."},
+        {"name": "GROUPMATCH", "type": "varchar", "notes": "Grouping rule type."},
+        {"name": "GROUPFILTERING", "type": "varchar", "notes": "Modifier filtering rule."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "BOOL_ISCOMPULSORY", "type": "tinyint", "notes": "Required flag."},
+        {"name": "LOWESTQTY", "type": "int", "notes": "Minimum quantity."},
+        {"name": "HIGHESTQTY", "type": "int", "notes": "Maximum quantity."}
+      ]
+    },
+    {
+      "name": "APP_4_MENUITEMOUTOFSTOCK",
+      "module": "Products & Inventory",
+      "purpose": "Out-of-stock windows for menu items.",
+      "columns": [
+        {"name": "ID", "type": "bigint", "notes": "Primary key."},
+        {"name": "ITEM_ID", "type": "varchar", "notes": "Item ID."},
+        {"name": "ITEM_CODE", "type": "varchar", "notes": "Item code."},
+        {"name": "ITEM_NAME", "type": "varchar", "notes": "Item name."},
+        {"name": "ITEM_CATEGORY", "type": "varchar", "notes": "Item category."},
+        {"name": "LOCATIONID", "type": "varchar", "notes": "Outlet GUID."},
+        {"name": "DATETIME__DATESTART", "type": "date", "notes": "Out-of-stock start date."},
+        {"name": "DATETIME__DATEEND", "type": "date", "notes": "Out-of-stock end date."},
+        {"name": "ORDER_SOURCE", "type": "varchar", "notes": "Channel filter."},
+        {"name": "SALES_TYPE", "type": "varchar", "notes": "Sales type filter."}
+      ]
     }
   ]
 }
