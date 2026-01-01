@@ -603,6 +603,7 @@ def load_via_bulk_insert(
     parquet_path: Path,
     start_date: Optional[str],
     end_date: Optional[str],
+    full_table: bool = False,
     conn_manager: Optional[ConnectionManager] = None,
 ) -> int:
     """Load data using SQL Server BULK INSERT from Parquet file."""
@@ -621,7 +622,12 @@ def load_via_bulk_insert(
         
         # Delete existing range if date-filtered
         delete_existing_range(
-            cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+            cursor,
+            target_table,
+            DATE_FILTER_COLUMNS.get(table_name),
+            start_date,
+            end_date,
+            full_table=full_table,
         )
         
         # Convert Windows path to format SQL Server can access
@@ -660,6 +666,7 @@ def load_via_bulk_insert(
                 df,
                 start_date,
                 end_date,
+                full_table=full_table,
                 batch_size=100000,
                 commit_interval=100000,
                 conn_manager=conn_manager,
@@ -675,6 +682,7 @@ def load_from_parquet_streaming(
     parquet_path: Path,
     start_date: Optional[str],
     end_date: Optional[str],
+    full_table: bool = False,
     batch_size: int = 100000,
     commit_interval: int = 100000,
     conn_manager: Optional[ConnectionManager] = None,
@@ -708,7 +716,12 @@ def load_from_parquet_streaming(
         
         # Delete existing range if date-filtered
         delete_existing_range(
-            cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+            cursor,
+            target_table,
+            DATE_FILTER_COLUMNS.get(table_name),
+            start_date,
+            end_date,
+            full_table=full_table,
         )
         
         cursor.fast_executemany = True
@@ -831,6 +844,7 @@ def load_in_batches(
     df: pd.DataFrame,
     start_date: Optional[str],
     end_date: Optional[str],
+    full_table: bool = False,
     batch_size: int = 100000,
     commit_interval: int = 100000,
     conn_manager: Optional[ConnectionManager] = None,
@@ -886,7 +900,12 @@ def load_in_batches(
         
         # Delete existing range if date-filtered
         delete_existing_range(
-            cursor, target_table, DATE_FILTER_COLUMNS.get(table_name), start_date, end_date
+            cursor,
+            target_table,
+            DATE_FILTER_COLUMNS.get(table_name),
+            start_date,
+            end_date,
+            full_table=full_table,
         )
         
         cursor.fast_executemany = True
@@ -931,7 +950,11 @@ def delete_existing_range(
     date_column: Optional[str],
     start_date: Optional[str],
     end_date: Optional[str],
+    full_table: bool = False,
 ):
+    if full_table:
+        cursor.execute(f"DELETE FROM {target_table}")
+        return
     if not date_column or not start_date:
         return
     if end_date:
@@ -967,7 +990,8 @@ def stream_full_table_direct(
     columns = [col["name"] for col in schema_entry["columns"]]
     placeholders = ", ".join(["?"] * len(columns))
     column_list = ", ".join(columns)
-    insert_sql = f"INSERT INTO dbo.com_5013_{table_name} ({column_list}) VALUES ({placeholders})"
+    target_table = f"dbo.com_5013_{table_name}"
+    insert_sql = f"INSERT INTO {target_table} ({column_list}) VALUES ({placeholders})"
 
     print(f"\n[STREAM] {table_name}: streaming full table directly to target")
 
@@ -989,6 +1013,14 @@ def stream_full_table_direct(
     try:
         cursor = target_conn.cursor()
         cursor.fast_executemany = True
+        delete_existing_range(
+            cursor,
+            target_table,
+            DATE_FILTER_COLUMNS.get(table_name),
+            start_date,
+            end_date,
+            full_table=True,
+        )
 
         total_loaded = 0
         rows_since_commit = 0
@@ -1120,6 +1152,7 @@ def stream_export_and_load(
                     output_path,
                     start_date,
                     end_date,
+                    full_table=args.full_table,
                     conn_manager=conn_manager,
                 )
             else:
@@ -1131,6 +1164,7 @@ def stream_export_and_load(
                     output_path,
                     start_date,
                     end_date,
+                    full_table=args.full_table,
                     batch_size=args.batch_size,
                     commit_interval=args.commit_interval,
                     conn_manager=conn_manager,
